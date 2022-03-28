@@ -77,7 +77,7 @@ jobs:
         with:
           image: ${{ steps.build_image.outputs.image }}
           tags: ${{ steps.build_image.outputs.tags }}
-          registry: ${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_NAMESPACE }}
+          registry: ${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
           extra-args: |
             --disable-content-trust
       - name: Echo outputs
@@ -95,7 +95,7 @@ jobs:
           cd deploy
           helm dependency build
           helm package . --version ${{ steps.generate_tag.outputs.new_tag }}
-          helm push *.tgz oci://quay.io/fmi
+          helm push *.tgz oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
       - name: Install SSH Client
         uses: webfactory/ssh-agent@v0.5.4
         with:
