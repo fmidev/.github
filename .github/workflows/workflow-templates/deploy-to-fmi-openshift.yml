@@ -4,16 +4,22 @@ on:
   workflow_call:
     inputs:
       APPLICATION_NAME: true
+        default: '${{ github.event.repository.name }}'
+	required: true
         type: string
     secrets:
       IMAGE_REGISTRY_USER:
+        default: 'quay.io'
         required: true
+	type: string
       IMAGE_REGISTRY_TOKEN:
         required: true
+	type: string
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+	typo: string
 
 env:
-  HELM_URL: "oci://quay.io/fmi/${{inputs.APPLICATION_NAME}}-chart"
-  DOCKER_FILE_PATH: Dockerfile
   IMAGE_REGISTRY: quay.io
   IMAGE_NAMESPACE: fmi
   IMAGE_NAME: ${{inputs.APPLICATION_NAME}}
@@ -123,7 +129,7 @@ jobs:
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4.2.5
         with:
-          ssh-key: ${{ secrets.SSH_PRIVATE_KEY_FOR_DEPLOY }}
+          ssh-key: ${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}
           repository-name: "fmidev/openshift-apps-gitops"
           branch: main
           target-folder: "pak/${{inputs.APPLICATION_NAME}}/dev"
