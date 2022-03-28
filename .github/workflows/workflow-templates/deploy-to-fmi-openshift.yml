@@ -8,9 +8,9 @@ on:
     secrets:
       GITHUB_TOKEN:
         required: true
-      QUAY_ROBOT_USER:
+      IMAGE_REGISTRY_USER:
         required: true
-      QUAY_ROBOT_TOKEN:
+      IMAGE_REGISTRY_TOKEN:
         required: true
 
 env:
@@ -44,8 +44,8 @@ jobs:
         uses: redhat-actions/podman-login@v1
         with:
           registry: quay.io
-          username: ${{ secrets.QUAY_ROBOT_USER }}
-          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+          username: ${{ secrets.IMAGE_REGISTRY_USER }}
+          password: ${{ secrets.IMAGE_REGISTRY_TOKEN }}
 
       #  Build image using Buildah action
       - name: Build Image
@@ -80,7 +80,7 @@ jobs:
         run: |
           pwd
           helm version
-          helm registry login ${{ env.IMAGE_REGISTRY }}  --username ${{ secrets.QUAY_ROBOT_USER }} --password ${{ secrets.QUAY_ROBOT_TOKEN }}
+          helm registry login ${{ env.IMAGE_REGISTRY }}  --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
           cd deploy
           helm dependency build
           helm package . --version ${{ steps.generate_tag.outputs.new_tag }}
