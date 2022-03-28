@@ -1,9 +1,13 @@
+# DEPRECATED (DO NOT USE!)
 name: package-and-push
 
 on:
-  push:
-    branches:
-      - "main"
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
 
 env:
   HELM_URL: "oci://quay.io/fmi/share-weatherproof-fi-chart"
