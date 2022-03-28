@@ -15,6 +15,13 @@ on:
         default: 'fmi'
         required: true
         type: string
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
+        required: true
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT:
+        default: 'dev'
+        required: false
+        type: string
     secrets:
       IMAGE_REGISTRY_USER:
         required: true
@@ -105,14 +112,15 @@ jobs:
       - name: "Update Chart"
         run: |
           echo "Before changes"
-          cat pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
-          cat pak/${{inputs.APPLICATION_NAME}}/dev/values.yaml
-          yq -i '.dependencies[0].version = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
-          yq -i '.version = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
-          yq -i '."${{inputs.APPLICATION_NAME}}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.APPLICATION_NAME}}/dev/values.yaml
+          cd ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{inputs.APPLICATION_NAME}}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}
+          cat Chart.yaml
+          cat values.yaml
+          yq -i '.dependencies[0].version = "${{ steps.build_image.outputs.tags }}"' Chart.yaml
+          yq -i '.version = "${{ steps.build_image.outputs.tags }}"' Chart.yaml
+          yq -i '."${{inputs.APPLICATION_NAME}}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' values.yaml
           echo "After changes"
-          cat pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
-          cat pak/${{inputs.APPLICATION_NAME}}/dev/values.yaml
+          cat Chart.yaml
+          cat values.yaml
           echo "File updated"
       # Commit back chang
       - name: Commit files
