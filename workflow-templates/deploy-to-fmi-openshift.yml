@@ -24,8 +24,6 @@ on:
         required: true
 
 env:
-  IMAGE_REGISTRY: quay.io
-  IMAGE_NAMESPACE: fmi
   IMAGE_NAME: ${{inputs.APPLICATION_NAME}}
 
 jobs:
