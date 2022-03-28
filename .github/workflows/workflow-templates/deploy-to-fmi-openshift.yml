@@ -1,13 +1,10 @@
 name: package-and-push
 
 on:
-  push:
-    branches:
-      - "main"
   workflow_call:
     inputs:
       app_name: true
-      type: string
+        type: string
     secrets:
       GITHUB_TOKEN:
         required: true
@@ -76,7 +73,7 @@ jobs:
           echo "${{ toJSON(steps.push.outputs) }}"
 
       # Checkout push-to-registry action github repository
-      - name: Set up Helm
+      - name: Setup Helm
         uses: azure/setup-helm@v2.0
       # Publish helm chart to nexus
       - name: Publish Helm chart
