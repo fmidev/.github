@@ -1,4 +1,4 @@
-name: package-and-push
+name: Build and Deploy to OpenShift
 
 on:
   workflow_call:
@@ -9,14 +9,23 @@ on:
         type: string
       IMAGE_REGISTRY:
         default: 'quay.io'
-        required: true
+        required: false
         type: string
       IMAGE_REGISTRY_NAMESPACE:
         default: 'fmi'
-        required: true
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY:
+        default: 'fmidev/openshift-apps-gitops'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        default: 'main'
+        required: false
         type: string
       DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
-        required: true
+        default: '.'
+        required: false
         type: string
       DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT:
         default: 'dev'
@@ -30,9 +39,6 @@ on:
       DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
         required: true
 
-env:
-  IMAGE_NAME: ${{inputs.APPLICATION_NAME}}
-
 jobs:
   update-versions:
     name: Update Versions
@@ -43,100 +49,93 @@ jobs:
         with:
           fetch-depth: "0"
 
-      - name: Generate Tag
+      - name: Generate tag
         id: generate_tag
         uses: anothrNick/github-tag-action@1.38.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
-          RELEASE_BRANCHES: main
-          INITIAL_VERSION: 0.0.0
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          DEFAULT_BUMP: 'patch'
+          RELEASE_BRANCHES: 'main'
+          INITIAL_VERSION: '0.0.0'
 
-      # Authenticate to container image registry to push the image
-      - name: Podman Login
+      - name: Registry login
         uses: redhat-actions/podman-login@v1
         with:
-          registry: quay.io
-          username: ${{ secrets.IMAGE_REGISTRY_USER }}
-          password: ${{ secrets.IMAGE_REGISTRY_TOKEN }}
+          registry: '${{ inputs.IMAGE_REGISTRY }}'
+          username: '${{ secrets.IMAGE_REGISTRY_USER }}'
+          password: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
 
-      #  Build image using Buildah action
-      - name: Build Image
+      - name: Build image
         id: build_image
         uses: redhat-actions/buildah-build@v2
         with:
-          image: ${{ inputs.APPLICATION_NAME }}
+          image: '${{ inputs.APPLICATION_NAME }}'
           layers: false
-          tags: ${{ steps.generate_tag.outputs.new_tag }}
+          tags: '${{ steps.generate_tag.outputs.new_tag }}'
           dockerfiles: |
             ./Dockerfile
-      # Push the image to Quay.io (Image Registry)
-      - name: Push To Quay
+
+      - name: Push to registry
         uses: redhat-actions/push-to-registry@v2
         id: push
         with:
-          image: ${{ steps.build_image.outputs.image }}
-          tags: ${{ steps.build_image.outputs.tags }}
-          registry: ${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
+          image: '${{ steps.build_image.outputs.image }}'
+          tags: '${{ steps.build_image.outputs.tags }}'
+          registry: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}'
           extra-args: |
             --disable-content-trust
       - name: Echo outputs
         run: |
           echo "${{ toJSON(steps.push.outputs) }}"
-      # Checkout push-to-registry action github repository
+
       - name: Setup Helm
         uses: azure/setup-helm@v2.0
-      # Publish helm chart to nexus
+        with:
+          version: 'v3.8.1'
+
       - name: Publish Helm chart
         run: |
-          pwd
-          helm version
-          helm registry login ${{ inputs.IMAGE_REGISTRY }}  --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
           cd deploy
+          helm version
+          helm registry login ${{ inputs.IMAGE_REGISTRY }} --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
           helm dependency build
           helm package . --version ${{ steps.generate_tag.outputs.new_tag }}
-          helm push *.tgz oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
+          helm push *.tgz 'oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}'
+
       - name: Install SSH Client
         uses: webfactory/ssh-agent@v0.5.4
         with:
-          ssh-private-key: ${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}
+          ssh-private-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
 
       - name: Check out remote code
         uses: actions/checkout@v2
         with:
-          repository: "fmidev/openshift-apps-gitops"
-          ssh-key: ${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}
+          repository: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+          ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
           persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
-      - name: "Update Chart"
+      - name: Update Helm chart
         run: |
-          echo "Before changes"
-          cd ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{inputs.APPLICATION_NAME}}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}
-          cat Chart.yaml
-          cat values.yaml
+          cd '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}'
           yq -i '.dependencies[0].version = "${{ steps.build_image.outputs.tags }}"' Chart.yaml
           yq -i '.version = "${{ steps.build_image.outputs.tags }}"' Chart.yaml
-          yq -i '."${{inputs.APPLICATION_NAME}}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' values.yaml
-          echo "After changes"
-          cat Chart.yaml
-          cat values.yaml
-          echo "File updated"
-      # Commit back chang
+          yq -i '."${{ inputs.APPLICATION_NAME }}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' values.yaml
+
       - name: Commit files
         run: |
-          git config --local user.email "noreply@fmi.fi"
-          git config --local user.name "${{inputs.APPLICATION_NAME}}-ci"
+          git config --local user.email '${{ github.event.head_commit.author.email }}'
+          git config --local user.name '${{ github.event.head.commit.author.name }} (via automation)'
           git status
           git diff
           git add .
-          git commit -m "[skip-ci] Update artifacts" -a
-      #         git push
+          git commit --all --message="Update '${{ inputs.APPLICATION_NAME }}' version to '${{ steps.build_image.outputs.tags }}' [skip-ci]"
+
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4.2.5
         with:
-          ssh-key: ${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}
-          repository-name: "fmidev/openshift-apps-gitops"
-          branch: main
-          target-folder: "pak/${{inputs.APPLICATION_NAME}}/dev"
-          folder: "pak/${{inputs.APPLICATION_NAME}}/dev"
+          ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
+          repository-name: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+          branch: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BRANCH }}'
+          target-folder: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}'
+          folder: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}'
