@@ -99,13 +99,13 @@ jobs:
       - name: Install SSH Client
         uses: webfactory/ssh-agent@v0.5.4
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY_FOR_DEPLOY }}
+          ssh-private-key: ${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}
 
       - name: Check out remote code
         uses: actions/checkout@v2
         with:
           repository: "fmidev/openshift-apps-gitops"
-          ssh-key: ${{ secrets.SSH_PRIVATE_KEY_FOR_DEPLOY }}
+          ssh-key: ${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}
           persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
