@@ -65,7 +65,7 @@ jobs:
         id: build_image
         uses: redhat-actions/buildah-build@v2
         with:
-          image: ${{ env.IMAGE_NAME }}
+          image: ${{ inputs.APPLICATION_NAME }}
           layers: false
           tags: ${{ steps.generate_tag.outputs.new_tag }}
           dockerfiles: |
@@ -77,7 +77,7 @@ jobs:
         with:
           image: ${{ steps.build_image.outputs.image }}
           tags: ${{ steps.build_image.outputs.tags }}
-          registry: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}
+          registry: ${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_NAMESPACE }}
           extra-args: |
             --disable-content-trust
       - name: Echo outputs
@@ -91,7 +91,7 @@ jobs:
         run: |
           pwd
           helm version
-          helm registry login ${{ env.IMAGE_REGISTRY }}  --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
+          helm registry login ${{ inputs.IMAGE_REGISTRY }}  --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
           cd deploy
           helm dependency build
           helm package . --version ${{ steps.generate_tag.outputs.new_tag }}
