@@ -3,7 +3,7 @@ name: package-and-push
 on:
   workflow_call:
     inputs:
-      app_name: true
+      APPLICATION_NAME: true
         type: string
     secrets:
       GITHUB_TOKEN:
@@ -14,11 +14,11 @@ on:
         required: true
 
 env:
-  HELM_URL: "oci://quay.io/fmi/${{inputs.app_name}}-chart"
+  HELM_URL: "oci://quay.io/fmi/${{inputs.APPLICATION_NAME}}-chart"
   DOCKER_FILE_PATH: Dockerfile
   IMAGE_REGISTRY: quay.io
   IMAGE_NAMESPACE: fmi
-  IMAGE_NAME: ${{inputs.app_name}}
+  IMAGE_NAME: ${{inputs.APPLICATION_NAME}}
 
 jobs:
   update-versions:
@@ -102,21 +102,21 @@ jobs:
       - name: "Update Chart"
         run: |
           echo "Before changes"
-          cat pak/${{inputs.app_name}}/dev/Chart.yaml
-          cat pak/${{inputs.app_name}}/dev/values.yaml
-          yq -i '.dependencies[0].version = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.app_name}}/dev/Chart.yaml
-          yq -i '.version = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.app_name}}/dev/Chart.yaml
-          yq -i '."${{inputs.app_name}}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.app_name}}/dev/values.yaml
+          cat pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
+          cat pak/${{inputs.APPLICATION_NAME}}/dev/values.yaml
+          yq -i '.dependencies[0].version = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
+          yq -i '.version = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
+          yq -i '."${{inputs.APPLICATION_NAME}}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' pak/${{inputs.APPLICATION_NAME}}/dev/values.yaml
           echo "After changes"
-          cat pak/${{inputs.app_name}}/dev/Chart.yaml
-          cat pak/${{inputs.app_name}}/dev/values.yaml
+          cat pak/${{inputs.APPLICATION_NAME}}/dev/Chart.yaml
+          cat pak/${{inputs.APPLICATION_NAME}}/dev/values.yaml
           echo "File updated"
 
       # Commit back chang
       - name: Commit files
         run: |
           git config --local user.email "noreply@fmi.fi"
-          git config --local user.name "${{inputs.app_name}}-ci"
+          git config --local user.name "${{inputs.APPLICATION_NAME}}-ci"
           git status
           git diff
           git add .
@@ -128,5 +128,5 @@ jobs:
           ssh-key: ${{ secrets.SSH_PRIVATE_KEY_FOR_DEPLOY }}
           repository-name: "fmidev/openshift-apps-gitops"
           branch: main
-          target-folder: "pak/${{inputs.app_name}}/dev"
-          folder: "pak/${{inputs.app_name}}/dev"
+          target-folder: "pak/${{inputs.APPLICATION_NAME}}/dev"
+          folder: "pak/${{inputs.APPLICATION_NAME}}/dev"
