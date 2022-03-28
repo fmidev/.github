@@ -5,12 +5,16 @@ on:
     inputs:
       APPLICATION_NAME:
         default: '${{ github.event.repository.name }}'
-	required: true
+        required: false
         type: string
       IMAGE_REGISTRY:
         default: 'quay.io'
-	required: true
-	type: string
+        required: true
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: true
+        type: string
     secrets:
       IMAGE_REGISTRY_USER:
         required: true
