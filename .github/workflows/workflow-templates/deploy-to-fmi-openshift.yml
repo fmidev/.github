@@ -3,21 +3,21 @@ name: package-and-push
 on:
   workflow_call:
     inputs:
-      APPLICATION_NAME: true
+      APPLICATION_NAME:
         default: '${{ github.event.repository.name }}'
 	required: true
         type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+	required: true
+	type: string
     secrets:
       IMAGE_REGISTRY_USER:
-        default: 'quay.io'
         required: true
-	type: string
       IMAGE_REGISTRY_TOKEN:
         required: true
-	type: string
       DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
         required: true
-	typo: string
 
 env:
   IMAGE_REGISTRY: quay.io
