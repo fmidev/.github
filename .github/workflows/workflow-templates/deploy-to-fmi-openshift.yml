@@ -6,8 +6,6 @@ on:
       APPLICATION_NAME: true
         type: string
     secrets:
-      GITHUB_TOKEN:
-        required: true
       IMAGE_REGISTRY_USER:
         required: true
       IMAGE_REGISTRY_TOKEN:
