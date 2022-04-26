@@ -95,7 +95,7 @@ jobs:
 
       - name: Publish Helm chart
         run: |
-          cd deploy
+          cd conf/helm
           helm version
           helm registry login ${{ inputs.IMAGE_REGISTRY }} --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
           helm dependency build
