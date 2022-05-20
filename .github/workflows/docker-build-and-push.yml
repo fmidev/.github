@@ -27,8 +27,23 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GIT_SHORT_SHA: ${GITHUB_SHA:7}
+      GIT_SHORT_SHA1: ${GITHUB_SHA:7}
+      GIT_SHORT_SHA2: ${GITHUB_SHA::7}
+      GIT_SHORT_SHA3: ${env.GITHUB_SHA:7}
+      GIT_SHORT_SHA4: ${env.GITHUB_SHA::7}
+      GIT_SHORT_SHA5: ${GITHUB_SHA}
 
     steps:
+      - name: Dump
+        run: |
+          env
+          echo "CUSTOM:"
+          echo "1 ${{ env.GIT_SHORT_SHA1 }}"
+          echo "2 ${{ env.GIT_SHORT_SHA2 }}"
+          echo "3 ${{ env.GIT_SHORT_SHA3 }}"
+          echo "4 ${{ env.GIT_SHORT_SHA4 }}"
+          echo "5 ${{ env.GIT_SHORT_SHA5 }}"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
