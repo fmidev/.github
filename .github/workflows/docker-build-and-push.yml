@@ -50,4 +50,4 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: '${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ inputs.IMAGE_TAG }}'
+          tags: ${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ inputs.IMAGE_TAG }}
