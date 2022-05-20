@@ -61,4 +61,4 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: '${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.GIT_SHORT_SHA }}'
+          tags: "${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.GIT_SHORT_SHA }}"
