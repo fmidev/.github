@@ -29,11 +29,13 @@ jobs:
       GIT_SHORT_SHA: ${GITHUB_SHA:7}
       GIT_SHORT_SHA1: ${GITHUB_SHA:7}
       GIT_SHORT_SHA2: ${GITHUB_SHA::7}
-      GIT_SHORT_SHA3: ${env.GITHUB_SHA:7}
       GIT_SHORT_SHA4: ${env.GITHUB_SHA::7}
       GIT_SHORT_SHA5: ${GITHUB_SHA}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
       - name: Dump
         run: |
           env
