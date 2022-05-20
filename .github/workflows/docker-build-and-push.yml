@@ -1,5 +1,5 @@
 # from https://github.com/marketplace/actions/build-and-push-docker-images#git-context
-name: Docker image build and push
+name: Docker build and push
 
 on:
   workflow_call:
