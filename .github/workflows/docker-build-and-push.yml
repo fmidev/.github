@@ -8,6 +8,10 @@ on:
         default: '${{ github.event.repository.name }}'
         required: false
         type: string
+      IMAGE_TAG:
+        default: 'latest'
+        required: false
+        type: string
       IMAGE_REGISTRY:
         default: 'quay.io'
         required: false
@@ -25,9 +29,6 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    env:
-      GIT_SHORT_SHA: ${GITHUB_SHA::7}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -49,4 +50,4 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: "${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.GIT_SHORT_SHA }}"
+          tags: '${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ inputs.IMAGE_TAG }}'
