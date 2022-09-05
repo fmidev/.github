@@ -24,7 +24,7 @@ on:
         required: false
         type: string
     secrets:
-      HELM_REPOSITORY_SSH_PRIVATE_KEY:
+      HELM_REPOSITORY_PRIVATE_DEPLOY_KEY:
         required: true
 
 env:
@@ -46,7 +46,7 @@ jobs:
         with:
           repository: '${{ inputs.HELM_REPOSITORY }}'
           ref: '${{ inputs.HELM_REPOSITORY_BRANCH }}'
-          ssh-key: '${{ secrets.HELM_REPOSITORY_SSH_PRIVATE_KEY }}'
+          ssh-key: '${{ secrets.HELM_REPOSITORY_PRIVATE_DEPLOY_KEY }}'
           path: '${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
           persist-credentials: true
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
