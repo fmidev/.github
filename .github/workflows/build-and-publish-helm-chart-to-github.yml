@@ -1,0 +1,73 @@
+name: Build and publish to FMI private GitHub Helm repository
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      APPLICATION_VERSION:
+        default: '0.0.0'
+        required: false
+        type: string
+      HELM_CHART_PATH:
+        default: 'conf/helm'
+        required: false
+        type: string
+      HELM_REPOSITORY:
+        default: 'fmidev/private-helm-chart-repository'
+        required: false
+        type: string
+      HELM_REPOSITORY_BRANCH:
+        default: 'main'
+        required: false
+        type: string
+    secrets:
+      HELM_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+
+env:
+  LOCAL_HELM_REPO_CLONE_DIR: 'helm-chart-repository'
+
+jobs:
+  build-and-publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
+          persist-credentials: false
+
+      - name: Checkout Helm repository
+        uses: actions/checkout@v3
+        with:
+          repository: '${{ inputs.HELM_REPOSITORY }}'
+          ref: '${{ inputs.HELM_REPOSITORY_BRANCH }}'
+          ssh-key: '${{ secrets.HELM_REPOSITORY_SSH_PRIVATE_KEY }}'
+          path: '${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
+          persist-credentials: true
+          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.9.4'
+
+      - name: Build Helm chart
+        run: |
+          cd '${{ inputs.HELM_CHART_PATH }}'
+          helm version
+          helm dependency build
+          helm package . --version ${{ inputs.APPLICATION_VERSION }} --destination '${{ github.workspace }}/${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
+
+      - name: Publish Helm chart
+        run: |
+          cd '${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
+          git config --local user.email '${{ github.event.head_commit.author.email }}'
+          git config --local user.name '${{ github.event.head.commit.author.name }} (via automation)'
+          git add *.tgz
+          git commit --all --message="Publish ${{ inputs.APPLICATION_NAME }} version ${{ inputs.APPLICATION_VERSION }}"
+          git push
