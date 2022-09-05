@@ -3,6 +3,7 @@ name: Build and publish to FMI private GitHub Helm repository
 on:
   workflow_call:
     inputs:
+      # TODO: Should APPLICATION_NAME be extracted from the helm chart (e.g. 'yq .name conf/helm/Chart.yaml') if not specified
       APPLICATION_NAME:
         default: '${{ github.event.repository.name }}'
         required: false
