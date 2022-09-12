@@ -46,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Get short SHA tag
+        if: {{ inputs.IMAGE_TAG == '' }}
         uses: rlespinasse/github-slug-action@v4
         with:
           short-length: 7
@@ -64,14 +65,14 @@ jobs:
           password: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
 
       - name: Build and push with digest
-        if {{ inputs.IMAGE_TAG == '' }}
+        if: {{ inputs.IMAGE_TAG == '' }}
         uses: docker/build-push-action@v3
         with:
           push: true
           tags: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.GITHUB_SHA_SHORT }}'
 
       - name: Build and push with tag
-        if {{ inputs.IMAGE_TAG != '' }}
+        if: {{ inputs.IMAGE_TAG != '' }}
         uses: docker/build-push-action@v3
         with:
           push: true
