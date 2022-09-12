@@ -33,13 +33,13 @@ env:
 
 jobs:
   build-and-publish:
-    name: Build and publish
+    name: Helm build and publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
+#          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
           persist-credentials: false
 
       - name: Checkout Helm repository
