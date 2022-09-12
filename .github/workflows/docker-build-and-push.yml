@@ -8,6 +8,10 @@ on:
         default: '${{ github.event.repository.name }}'
         required: false
         type: string
+      IMAGE_TAG:
+        default: ''
+        required: false
+        type: string
       IMAGE_REGISTRY:
         default: 'quay.io'
         required: false
@@ -22,15 +26,25 @@ on:
       IMAGE_REGISTRY_TOKEN:
         required: true
 
+permissions:
+  actions: none
+  checks: none
+  contents: read
+  deployments: none
+  id-token: none
+  issues: none
+  discussions: none
+  packages: none
+  pages: none
+  pull-requests: none
+  repository-projects: none
+  security-events: none
+  statuses: none
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Get short SHA tag
-        uses: rlespinasse/github-slug-action@v4
-        with:
-          short-length: 7
-
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -47,8 +61,23 @@ jobs:
           username: '${{ secrets.IMAGE_REGISTRY_USER }}'
           password: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
 
-      - name: Build and push
+      - name: Get short SHA tag
+        if: ${{ inputs.IMAGE_TAG == '' }}
+        uses: rlespinasse/github-slug-action@v4
+        with:
+          short-length: 7
+
+      - name: Build and push with SHA tag
+        if: ${{ inputs.IMAGE_TAG == '' }}
         uses: docker/build-push-action@v3
         with:
           push: true
           tags: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.GITHUB_SHA_SHORT }}'
+
+      - name: Build and push with tag
+        if: ${{ inputs.IMAGE_TAG != '' }}
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          push: true
+          tags: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ inputs.IMAGE_TAG }}'
