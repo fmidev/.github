@@ -66,7 +66,11 @@ jobs:
           yq -i '."${{ inputs.APPLICATION_NAME }}-chart".application.deployment.image.tag = "${{ inputs.APPLICATION_VERSION }}"' values.yaml
 
       - name: Commit files
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
+          ssh-agent -a $SSH_AUTH_SOCK > /dev/null
+          ssh-add - <<< '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
           git config --local user.email '${{ github.event.head_commit.author.email }}'
           git config --local user.name '${{ github.event.head.commit.author.name }} (via automation)'
           git status
