@@ -43,6 +43,7 @@ permissions:
 
 jobs:
   build-and-push:
+    name: Docker build and push
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
