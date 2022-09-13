@@ -1,0 +1,50 @@
+name: Helm build and publish to OCI registry
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_VERSION:
+        default: '0.0.0'
+        required: false
+        type: string
+      HELM_CHART_PATH:
+        default: 'conf/helm'
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_TOKEN:
+        required: true
+
+jobs:
+  build-and-publish:
+    name: Helm build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.9.4'
+
+      - name: Build Helm chart
+        run: |
+          cd '${{ inputs.HELM_CHART_PATH }}'
+          helm version
+          helm registry login ${{ inputs.IMAGE_REGISTRY }} --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
+          helm dependency build
+          helm package . --version ${{ inputs.APPLICATION_VERSION }}
+          helm push *.tgz 'oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}'
