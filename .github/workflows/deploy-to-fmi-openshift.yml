@@ -140,5 +140,5 @@ jobs:
           target-folder: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}'
           folder: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}'
           git-config-email: '${{ github.event.head_commit.author.email }}'
-          git-config-name: '${{ github.event.head.commit.author.name }} (via automation)'
+          git-config-name: '${{ github.event.head_commit.author.name }} (via automation)'
           commit-message: "Update '${{ inputs.APPLICATION_NAME }}' version to '${{ steps.build_image.outputs.tags }}'\n\n${{ github.event.commits[0].message }}"
