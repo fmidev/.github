@@ -1,0 +1,103 @@
+name: Build and deploy to OpenShift
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      APPLICATION_VERSION:
+        default: '${{ github.ref_name }}'
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY:
+        default: 'fmidev/openshift-apps-gitops'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        default: 'main'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
+        default: '.'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT:
+        default: 'dev'
+        required: false
+        type: string
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_TOKEN:
+        required: true
+      HELM_REPOSITORY_PRIVATE_DEPLOY_KEY:
+        required: true
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-22.04
+    outputs:
+      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
+    steps:
+      - name: Validate SemVer
+        run: |
+          echo "Application version: ${{ inputs.APPLICATION_VERSION }}"
+          # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+          echo '${{ inputs.APPLICATION_VERSION }}' | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'
+          if [[ $? -eq 0 ]]; then echo "Version matches the SemVer format"; else echo "Error: version does not match the SemVer format"; exit 1; fi
+
+  deploy-image:
+    name: Docker build and push
+    needs: setup
+    uses: fmidev/.github/.github/workflows/docker-build-and-push.yml@main
+    with:
+      IMAGE_NAME: ${{ inputs.APPLICATION_NAME }}
+      IMAGE_TAG: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+    secrets:
+      IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
+      IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+
+  deploy-helm-to-github:
+    name: Helm publish to GitHub
+    needs: setup
+    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-github.yml@main
+    with:
+      APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
+      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+    secrets:
+      HELM_REPOSITORY_PRIVATE_DEPLOY_KEY: '${{ secrets.HELM_REPOSITORY_PRIVATE_DEPLOY_KEY }}'
+
+  deploy-helm-to-oci:
+    name: Helm publish to OCI registry
+    needs: setup
+    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yml@main
+    with:
+      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+    secrets:
+      IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
+      IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+
+  update-openshift-app-version:
+    name: Update version in OpenShift GitOps
+    needs: [setup, deploy-image, deploy-helm-to-github, deploy-helm-to-oci]
+    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yml@main
+    with:
+      APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
+      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}
+    secrets:
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
