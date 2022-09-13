@@ -3,7 +3,6 @@ name: Build and publish to FMI private GitHub Helm repository
 on:
   workflow_call:
     inputs:
-      # TODO: Should APPLICATION_NAME be extracted from the helm chart (e.g. 'yq .name conf/helm/Chart.yaml') if not specified
       APPLICATION_NAME:
         default: '${{ github.event.repository.name }}'
         required: false
@@ -39,7 +38,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-#          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
           persist-credentials: false
 
       - name: Checkout Helm repository
@@ -68,7 +66,7 @@ jobs:
         run: |
           cd '${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
           git config --local user.email '${{ github.event.head_commit.author.email }}'
-          git config --local user.name '${{ github.event.head.commit.author.name }} (via automation)'
+          git config --local user.name '${{ github.event.head_commit.author.name }} (via automation)'
           git add *.tgz
           git commit --all --message="Publish ${{ inputs.APPLICATION_NAME }} version ${{ inputs.APPLICATION_VERSION }}"
           git push
