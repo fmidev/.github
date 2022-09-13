@@ -125,7 +125,7 @@ jobs:
       - name: Commit files
         run: |
           git config --local user.email '${{ github.event.head_commit.author.email }}'
-          git config --local user.name '${{ github.event.head.commit.author.name }} (via automation)'
+          git config --local user.name '${{ github.event.head_commit.author.name }} (via automation)'
           git status
           git diff
           git add .
