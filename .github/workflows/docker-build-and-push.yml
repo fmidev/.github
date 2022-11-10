@@ -20,6 +20,11 @@ on:
         default: 'fmi'
         required: false
         type: string
+      # TODO: implement this
+      CREATE_LATEST_TAG:
+        default: false
+        required: false
+        type: boolean
     secrets:
       IMAGE_REGISTRY_USER:
         required: true
@@ -67,6 +72,8 @@ jobs:
         uses: rlespinasse/github-slug-action@v4
         with:
           short-length: 7
+
+      # TODO: Form tag (or list of tags) from inputs.IMAGE_TAG and inputs.CREATE_LATEST_TAG and combine 'Build and push with SHA tag'
 
       - name: Build and push with SHA tag
         if: ${{ inputs.IMAGE_TAG == '' }}
