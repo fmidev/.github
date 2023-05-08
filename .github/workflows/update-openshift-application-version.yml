@@ -23,7 +23,7 @@ on:
         default: '.'
         required: false
         type: string
-      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT:
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS:
         default: 'development,staging'
         required: false
         type: string
@@ -51,7 +51,7 @@ jobs:
 
       - name: Update Helm chart
         env:
-          DEPLOY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}
+          DEPLOY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}
         run: |
           for environment in ${DEPLOY_ENVIRONMENTS//,/ }; do
             cd '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${environment}'
@@ -68,5 +68,5 @@ jobs:
           git status
           git diff
           git add .
-          git commit --all --message="Update ${{ inputs.APPLICATION_NAME }} ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }} version to ${{ inputs.APPLICATION_VERSION }}"
+          git commit --all --message="Update ${{ inputs.APPLICATION_NAME }} ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }} version to ${{ inputs.APPLICATION_VERSION }}"
           git push
