@@ -24,7 +24,7 @@ on:
         required: false
         type: string
       DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT:
-        default: 'dev'
+        default: 'development,staging'
         required: false
         type: string
     secrets:
@@ -50,11 +50,16 @@ jobs:
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
       - name: Update Helm chart
+        env:
+          DEPLOY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}
         run: |
-          cd '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}'
-          yq -i '.dependencies[0].version = "${{ inputs.APPLICATION_VERSION }}"' Chart.yaml
-          yq -i '.version = "${{ inputs.APPLICATION_VERSION }}"' Chart.yaml
-          yq -i '."${{ inputs.APPLICATION_NAME }}-chart".application.deployment.image.tag = "${{ inputs.APPLICATION_VERSION }}"' values.yaml
+          for environment in ${DEPLOY_ENVIRONMENTS//,/ }; do
+            cd '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${environment}'
+            yq -i '.dependencies[0].version = "${{ inputs.APPLICATION_VERSION }}"' Chart.yaml
+            yq -i '.version = "${{ inputs.APPLICATION_VERSION }}"' Chart.yaml
+            yq -i '."${{ inputs.APPLICATION_NAME }}-chart".application.deployment.image.tag = "${{ inputs.APPLICATION_VERSION }}"' values.yaml
+            cd - > /dev/null
+          done
 
       - name: Commit files
         run: |
