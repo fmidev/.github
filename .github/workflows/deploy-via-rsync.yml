@@ -1,0 +1,37 @@
+name: Deploy repository using rsync
+
+on:
+  workflow_call:
+    inputs:
+      remote_server:
+        description: 'The remote server to deploy to'
+        required: true
+      source_directory:
+        description: 'The source directory to sync'
+        required: false
+        default: './'
+    secrets:
+      DEPLOY_KEY:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install SSH key
+      run: |
+        echo "$DEPLOY_KEY" > deploy_key
+        chmod 600 deploy_key
+        ssh-add deploy_key
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+
+    - name: Deploy with rsync
+      run: |
+        rsync -av --delete ${{ inputs.source_directory }} ${{ inputs.remote_server }} --exclude '.git/'
+      env:
+        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
