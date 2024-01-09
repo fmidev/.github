@@ -32,7 +32,7 @@ on:
         required: false
         type: string
       DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS:
-        default: 'dev'
+        default: 'development'
         required: false
         type: string
     secrets:
@@ -98,6 +98,6 @@ jobs:
       APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
       APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
       DEPLOY_CONFIG_REPOSITORY_BASE_PATH: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}
-      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENT }}
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}
     secrets:
       DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
