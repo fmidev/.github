@@ -54,7 +54,7 @@ jobs:
           DEPLOY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}
         run: |
           for environment in ${DEPLOY_ENVIRONMENTS//,/ }; do
-            cd '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${environment}'
+            cd "${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}/${{ inputs.APPLICATION_NAME }}/${environment}"
             yq -i '.dependencies[0].version = "${{ inputs.APPLICATION_VERSION }}"' Chart.yaml
             yq -i '.version = "${{ inputs.APPLICATION_VERSION }}"' Chart.yaml
             yq -i '."${{ inputs.APPLICATION_NAME }}-chart".application.deployment.image.tag = "${{ inputs.APPLICATION_VERSION }}"' values.yaml
