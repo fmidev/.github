@@ -36,12 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Checkout Helm repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: '${{ inputs.HELM_REPOSITORY }}'
           ref: '${{ inputs.HELM_REPOSITORY_BRANCH }}'
@@ -51,9 +51,9 @@ jobs:
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
       - name: Setup Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
         with:
-          version: 'v3.9.4'
+          version: 'v3.13.3'
 
       - name: Build Helm chart
         run: |
