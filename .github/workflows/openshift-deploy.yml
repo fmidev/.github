@@ -11,6 +11,10 @@ on:
         default: '${{ github.ref_name }}'
         required: false
         type: string
+      APPLICATION_BUILD_CONTEXT:
+        default: '.'
+        required: false
+        type: string
       IMAGE_REGISTRY:
         default: 'quay.io'
         required: false
@@ -62,10 +66,11 @@ jobs:
   deploy-image:
     name: Docker build and push
     needs: setup
-    uses: fmidev/.github/.github/workflows/docker-build-and-push.yml@0.3.1
+    uses: fmidev/.github/.github/workflows/docker-build-and-push.yml@0.3.2
     with:
       IMAGE_NAME: ${{ inputs.APPLICATION_NAME }}
       IMAGE_TAG: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      IMAGE_BUILD_CONTEXT: ${{ inputs.APPLICATION_BUILD_CONTEXT }}
     secrets:
       IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
       IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
@@ -73,7 +78,7 @@ jobs:
   deploy-helm-to-oci:
     name: Helm publish to OCI registry
     needs: setup
-    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yml@0.3.1
+    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yml@0.3.2
     with:
       APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
     secrets:
@@ -83,7 +88,7 @@ jobs:
   update-openshift-app-version:
     name: Update version in OpenShift GitOps
     needs: [setup, deploy-image, deploy-helm-to-oci]
-    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yml@0.3.1
+    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yml@0.3.2
     with:
       APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
       APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
