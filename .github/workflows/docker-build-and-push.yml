@@ -83,7 +83,7 @@ jobs:
         if: ${{ inputs.IMAGE_TAG == '' }}
         uses: docker/build-push-action@v5
         with:
-          context: '${{ IMAGE_BUILD_CONTEXT }}'
+          context: '${{ inputs.IMAGE_BUILD_CONTEXT }}'
           push: true
           tags: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ env.GITHUB_SHA_SHORT }}'
 
@@ -91,6 +91,6 @@ jobs:
         if: ${{ inputs.IMAGE_TAG != '' }}
         uses: docker/build-push-action@v5
         with:
-          context: '${{ IMAGE_BUILD_CONTEXT }}'
+          context: '${{ inputs.IMAGE_BUILD_CONTEXT }}'
           push: true
           tags: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ inputs.IMAGE_TAG }}'
