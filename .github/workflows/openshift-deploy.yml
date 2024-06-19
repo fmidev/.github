@@ -19,6 +19,10 @@ on:
         default: 'quay.io'
         required: false
         type: string
+      BRANCH_NAME:
+        default: ''
+        required: false
+        type: string
       IMAGE_REGISTRY_NAMESPACE:
         default: 'fmi'
         required: false
@@ -71,6 +75,7 @@ jobs:
       IMAGE_NAME: ${{ inputs.APPLICATION_NAME }}
       IMAGE_TAG: ${{ needs.setup.outputs.APPLICATION_VERSION }}
       IMAGE_BUILD_CONTEXT: ${{ inputs.APPLICATION_BUILD_CONTEXT }}
+      BRANCH_NAME: ${{ inputs.BRANCH_NAME }}
     secrets:
       IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
       IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'

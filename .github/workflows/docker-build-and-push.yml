@@ -29,6 +29,10 @@ on:
         default: false
         required: false
         type: boolean
+      BRANCH_NAME:
+        default: ''
+        required: false
+        type: string
     secrets:
       IMAGE_REGISTRY_USER:
         required: true
@@ -57,6 +61,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.BRANCH_NAME}}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
