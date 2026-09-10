@@ -12,11 +12,10 @@ Shared reusable workflows for the `fmidev` organisation on github.com.
 | `helm-build-and-publish-to-oci-repo.yaml` | Package a Helm chart and push it to the OCI registry. |
 | `helm-build-and-publish-to-github.yaml` | Package a Helm chart and commit it to the git-based chart repository. |
 | `update-openshift-application-version.yaml` | Rewrite the version references in the OpenShift GitOps repository. |
-| `deploy-via-rsync.yaml` | Deploy a repository to a remote host over rsync. |
 | `post-to-slack-deploy-automation-notifier.yaml` | Post a plain text message to the deploy automation Slack channel. |
 
 `lint.yaml` is the exception: it is this repository's own CI and is not meant to
-be called. `deploy-to-fmi-openshift.yaml` is deprecated — see below.
+be called.
 
 Callers pin a tag of this repository, for example
 `uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.4.0`.
@@ -187,19 +186,9 @@ failing the deployment. Concurrency groups cannot solve this — they are scoped
 the repository that calls the workflow, and the racing runs are in different
 repositories.
 
-## Deprecated
-
-`deploy-to-fmi-openshift.yaml` is the original single-job pipeline: it invents a
-version with a third-party tag action, builds with Buildah, publishes the chart
-and edits GitOps, all in one job with no verification between the stages. No
-repository in the organisation calls it any more. It is kept so that anything
-still pinned to it keeps working, its actions are SHA-pinned like everything
-else, and it is otherwise unmaintained. Migrate to `openshift-deploy.yaml` and
-drive the version from a tag push.
-
 ## Upgrading a caller from 0.3.x to 0.4.0
 
-Two changes are breaking, and both fail loudly and immediately rather than
+Three changes are breaking, and each fails loudly and immediately rather than
 part-way through a deployment.
 
 **Workflow files are now `.yaml`, not `.yml`.** Update the path together with the
@@ -218,20 +207,13 @@ It was required but never used. Callers using `secrets: inherit` need no change.
 A caller passing secrets explicitly must drop that line, or the call fails with
 "invalid input".
 
-**`deploy-via-rsync.yaml` takes a host, a user and a directory separately.** The
-single `remote_server` input is gone, replaced by `remote_user`, `remote_host`
-and `remote_directory`, all required. The old workflow could not verify a host
-key without knowing the host on its own, and it never actually loaded the deploy
-key — `ssh-add` ran in a step where the key was not in the environment, so the
-key file it wrote was empty. No repository in the organisation calls this
-workflow, so the rename is safe, but a caller outside it must be rewritten:
-
-```diff
--      remote_server: 'www@example.fmi.fi:/srv/site'
-+      remote_user: 'www'
-+      remote_host: 'example.fmi.fi'
-+      remote_directory: '/srv/site'
-```
+**`deploy-via-rsync.yaml` and `deploy-to-fmi-openshift.yaml` are gone.** Both were
+obsolete and nothing in the organisation called either. `deploy-via-rsync` had in
+any case never worked: `ssh-add` ran in a step where the deploy key was not in
+the environment, so the key file it wrote was empty. `deploy-to-fmi-openshift`
+was the original single-job pipeline, superseded by `openshift-deploy.yaml`
+together with `openshift-promote.yaml`. Callers pinned to `@0.3.3` keep working;
+there is no replacement for either at `0.4.0`.
 
 Everything else is additive: `IMAGE_TAG_PREFIX`, `IMAGE_TAG_SUFFIX`,
 `IMAGE_PLATFORMS`, `IMAGE_FILE`, `HELM_CHART_PATH`, `HELM_VERSION`,

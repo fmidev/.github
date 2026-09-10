@@ -4,8 +4,8 @@
 # untrusted values reaching a shell, mutable action references, and credentials
 # left behind in the workspace. It runs as the third job of 'lint.yaml'.
 #
-# Everything below is an accepted finding, not a silenced one. Each entry says
-# why.
+# The one entry below is an accepted finding, not a silenced one, and says why.
+# Nothing else is exempt: the audit is expected to come back clean.
 rules:
   unpinned-uses:
     config:
@@ -18,21 +18,3 @@ rules:
         fmidev/*: ref-pin
         # Everything else is pinned by commit SHA.
         "*": hash-pin
-
-  template-injection:
-    ignore:
-      # Deprecated and unmaintained, kept only for repositories still pinned to
-      # it, and slated for removal. Its findings are real; the fix is to migrate
-      # to 'openshift-deploy.yaml' rather than to rework a workflow nothing
-      # calls.
-      - deploy-to-fmi-openshift.yaml
-
-  artipacked:
-    ignore:
-      # The GitOps and chart-repository checkouts must keep their deploy key in
-      # the local git config, because the job's whole purpose is to commit and
-      # push with it. Every other checkout in this repository sets
-      # 'persist-credentials: false'.
-      - update-openshift-application-version.yaml
-      - helm-build-and-publish-to-github.yaml
-      - deploy-to-fmi-openshift.yaml
