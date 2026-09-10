@@ -5,10 +5,8 @@
 # repository: nothing here is compiled, and a broken shared workflow is found by the repository
 # that calls it.
 #
-# Kept deliberately identical to the configuration in the FMI GitHub Enterprise 'pak/.github'
-# repository, which holds the same workflows for the internal instance. The two repositories are
-# maintained together, so a contributor moving between them meets the same rules and a fix made in
-# one transfers unchanged to the other.
+# Kept in step with the yamllint configuration used in the other FMI repositories that lint their
+# YAML, so that a contributor moving between them meets the same rules.
 extends: default
 
 rules:

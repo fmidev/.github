@@ -8,11 +8,9 @@ name: Lint
 # The linters run in containers pinned by digest rather than from the runner
 # image. GitHub-hosted runners do ship both tools' dependencies, but their
 # versions move with the runner image — shellcheck alone differs between
-# ubuntu-24.04 and ubuntu-26.04 — and this repository is maintained together
-# with its FMI GitHub Enterprise counterpart 'pak/.github', where the
-# self-hosted runners promise no toolchain at all. Pinning the containers keeps
-# a lint result reproducible and identical on both instances, so a fix made in
-# one transfers unchanged to the other.
+# ubuntu-24.04 and ubuntu-26.04 — so a finding could appear or disappear on a
+# commit that changed nothing here. Pinning the containers keeps a lint result
+# reproducible, and reproducible on any runner.
 #
 # Dependabot does not track an image named inside a 'run:' step: bump these
 # digests by hand together with the tag.

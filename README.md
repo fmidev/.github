@@ -20,25 +20,6 @@ be called.
 Callers pin a tag of this repository, for example
 `uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.4.0`.
 
-## Relationship to `pak/.github`
-
-The FMI GitHub Enterprise instance carries the same set of workflows in
-`pak/.github`, and the two are maintained together: same GitOps repository, same
-registry, same lint configuration, and deliberately the same file and input
-names wherever both instances can support them.
-
-They are not interchangeable, because the instances differ:
-
-| | this repository | `pak/.github` (GHES) |
-|---|---|---|
-| Runners | GitHub-hosted `ubuntu-24.04` | self-hosted `docker` / `podman` |
-| `actions/*` | upstream, any released version | resolved against the instance's own mirror, currently capped at `actions/checkout` v6.0.2 |
-| Slack | `slackapi/slack-github-action` v4, `webhook` input | held at v1.24.0, `SLACK_WEBHOOK_URL` environment variable |
-| Chart publishing | OCI registry, or the git-based chart repository | OCI registry only |
-
-A change made here usually belongs there too, but the pins and the runner labels
-never copy across unchanged.
-
 ## Checks on a change here
 
 Nothing in this repository is built or tested by the repository itself. Every
@@ -56,8 +37,7 @@ that, and all three of its jobs must stay green:
   workspace. Accepted findings are listed with their reasons in
   `.github/zizmor.yml`; the audit is expected to report nothing at all.
 
-All three run in containers pinned by digest, so a lint result is reproducible
-and identical to the one `pak/.github` produces on its self-hosted runners.
+All three run in containers pinned by digest, so a lint result is reproducible.
 Dependabot keeps the actions current but cannot see a container named inside a
 `run:` step, so bump those digests along with the tag.
 
@@ -75,11 +55,11 @@ tag describes the whole set. That exception is encoded as a policy in
 `.github/zizmor.yml` rather than left to reviewer memory.
 
 Runners are pinned to `ubuntu-24.04` rather than left on `ubuntu-latest`, so that
-a GitHub-side image migration cannot change what thirty-odd repositories deploy
-with, without a commit here. `ubuntu-24.04` is the newest generally available
-image; `ubuntu-26.04` exists but is a public preview and is explicitly outside
-the Actions SLA, which is not a suitable base for a deployment pipeline. Revisit
-when it goes GA.
+a GitHub-side image migration cannot change what repositories deploy with,
+without a commit here. `ubuntu-24.04` is the newest generally available image;
+`ubuntu-26.04` exists but is a public preview and is explicitly outside the
+Actions SLA, which is not a suitable base for a deployment pipeline. Revisit when
+it goes GA.
 
 Helm is pinned to a 3.x release. Helm 4 is out, and the GitHub-hosted images
 already ship it, but the charts in the GitOps repository and the Argo CD instance
@@ -105,7 +85,7 @@ jobs:
     uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.4.0
     with:
       APPLICATION_NAME: 'my-app'
-      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'pak'
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'tenant-id'
       DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: 'development,staging'
     secrets: inherit
 ```
@@ -132,7 +112,7 @@ jobs:
     with:
       APPLICATION_NAME: 'my-app'
       APPLICATION_VERSION: ${{ inputs.version }}
-      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'pak'
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'tenant-id'
       DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: 'production'
       SLACK_MESSAGE: 'My App version upgrade ${{ inputs.version }} to production'
     secrets: inherit
@@ -186,45 +166,25 @@ failing the deployment. Concurrency groups cannot solve this — they are scoped
 the repository that calls the workflow, and the racing runs are in different
 repositories.
 
-## Upgrading a caller from 0.3.x to 0.4.0
+## Upgrading a caller
 
-Three changes are breaking, and each fails loudly and immediately rather than
-part-way through a deployment.
+Callers pin a tag of this repository, so nothing changes under them until they
+bump it. [`CHANGELOG.md`](CHANGELOG.md) says what each release changed and which
+changes require a change in the calling repository.
 
-**Workflow files are now `.yaml`, not `.yml`.** Update the path together with the
-tag:
-
-```diff
--    uses: fmidev/.github/.github/workflows/openshift-deploy.yml@0.3.3
-+    uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.4.0
-```
-
-A caller that bumps the tag without renaming gets "workflow was not found" and
-nothing runs. Callers pinned to `@0.3.3` are unaffected and keep working.
-
-**`openshift-deploy.yaml` no longer declares `HELM_REPOSITORY_PRIVATE_DEPLOY_KEY`.**
-It was required but never used. Callers using `secrets: inherit` need no change.
-A caller passing secrets explicitly must drop that line, or the call fails with
-"invalid input".
-
-**`deploy-via-rsync.yaml` and `deploy-to-fmi-openshift.yaml` are gone.** Both were
-obsolete and nothing in the organisation called either. `deploy-via-rsync` had in
-any case never worked: `ssh-add` ran in a step where the deploy key was not in
-the environment, so the key file it wrote was empty. `deploy-to-fmi-openshift`
-was the original single-job pipeline, superseded by `openshift-deploy.yaml`
-together with `openshift-promote.yaml`. Callers pinned to `@0.3.3` keep working;
-there is no replacement for either at `0.4.0`.
-
-Everything else is additive: `IMAGE_TAG_PREFIX`, `IMAGE_TAG_SUFFIX`,
-`IMAGE_PLATFORMS`, `IMAGE_FILE`, `HELM_CHART_PATH`, `HELM_VERSION`,
-`HELM_CHART_NAME` and the `IMAGE_BUILD_ARGS` secret all default to the previous
-behaviour.
+Note that 0.4.0 renamed every workflow file from `.yml` to `.yaml`, so a caller
+moving to it has to update the path as well as the tag.
 
 ## Releasing a new version of this repository
 
 Sub-workflow references inside this repository are pinned to a tag as well, so a
-release is two steps:
+release is three steps:
 
-1. Update the `@<version>` references in `openshift-deploy.yaml` and
-   `openshift-promote.yaml` to the version about to be released.
-2. Tag the merge commit with that version.
+1. Move the `CHANGELOG.md` entry from unreleased to the version and date being
+   released, calling out anything a caller has to change.
+2. Update the `@<version>` references in `openshift-deploy.yaml` and
+   `openshift-promote.yaml` to that version.
+3. Tag the merge commit with it.
+
+Steps 2 and 3 are not atomic on GitHub: between the merge and the tag, a caller
+already on the new version has no workflows to resolve. Tag promptly.

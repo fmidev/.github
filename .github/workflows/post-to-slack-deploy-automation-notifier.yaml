@@ -3,11 +3,11 @@ name: Post to Slack Workflow 'Deploy automation notifier'
 # Posts a plain text message to the deploy automation Slack channel through a
 # Slack Workflow Builder trigger URL, which expects a single 'message' variable.
 #
-# Note the difference to the FMI GitHub Enterprise copy of this workflow: that
-# instance can only run slackapi/slack-github-action v1, where the webhook URL
-# is passed as the SLACK_WEBHOOK_URL environment variable. From v2 onwards the
-# action takes the URL as the 'webhook' input and requires 'webhook-type' to be
-# stated explicitly, which is what is used here.
+# Note when copying this step anywhere: slackapi/slack-github-action changed its
+# contract at v2. Up to v1 the webhook URL was read from the SLACK_WEBHOOK_URL
+# environment variable and the webhook type was inferred; from v2 onwards the URL
+# is the 'webhook' input and 'webhook-type' has to be stated explicitly, or the
+# action throws.
 
 on:
   workflow_call:
