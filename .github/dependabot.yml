@@ -1,0 +1,26 @@
+# Dependabot must be at '.github/dependabot.yml'; the '.yml' spelling is
+# GitHub's, not a choice, and is the one exception to the '.yaml' convention
+# this repository otherwise follows.
+version: 2
+updates:
+  # Covers the actions used by the workflows here. They are pinned by SHA with
+  # the version in a trailing comment, and Dependabot bumps both together.
+  #
+  # Not covered: the linter containers in 'workflows/lint.yaml'. Dependabot does
+  # not read images out of a 'run:' step, so those digests are bumped by hand.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # A release that is pulled within days of publication — because it broke, or
+    # because it was not the author who published it — should not have reached a
+    # deployment pipeline that thirty repositories call. Waiting a week costs
+    # nothing here.
+    cooldown:
+      default-days: 7
+    groups:
+      # One pull request for the whole set rather than five: these are bumped
+      # and reviewed together anyway, and every merge to main is a lint run.
+      actions:
+        patterns:
+          - "*"

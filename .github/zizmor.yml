@@ -1,0 +1,38 @@
+# zizmor configuration.
+#
+# zizmor audits these workflows for the failure modes that matter in shared CI:
+# untrusted values reaching a shell, mutable action references, and credentials
+# left behind in the workspace. It runs as the third job of 'lint.yaml'.
+#
+# Everything below is an accepted finding, not a silenced one. Each entry says
+# why.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # This repository's own reusable workflows stay on a release tag, so
+        # that one tag describes the whole set and a release is a single
+        # retagging rather than a SHA rewrite in five files. The tag is under
+        # this organisation's control, which is the difference to a third-party
+        # action.
+        fmidev/*: ref-pin
+        # Everything else is pinned by commit SHA.
+        "*": hash-pin
+
+  template-injection:
+    ignore:
+      # Deprecated and unmaintained, kept only for repositories still pinned to
+      # it, and slated for removal. Its findings are real; the fix is to migrate
+      # to 'openshift-deploy.yaml' rather than to rework a workflow nothing
+      # calls.
+      - deploy-to-fmi-openshift.yaml
+
+  artipacked:
+    ignore:
+      # The GitOps and chart-repository checkouts must keep their deploy key in
+      # the local git config, because the job's whole purpose is to commit and
+      # push with it. Every other checkout in this repository sets
+      # 'persist-credentials: false'.
+      - update-openshift-application-version.yaml
+      - helm-build-and-publish-to-github.yaml
+      - deploy-to-fmi-openshift.yaml

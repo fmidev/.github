@@ -1,0 +1,232 @@
+name: Promote an existing version to OpenShift
+
+# Deploys a version that has already been built and published by
+# 'openshift-deploy.yaml' to one or more environments, by updating the version
+# references in the OpenShift GitOps repository.
+#
+# Nothing is rebuilt: the container image and the Helm chart for
+# APPLICATION_VERSION are expected to be in the registry already. This is the
+# difference to 'openshift-deploy.yaml', which builds and then deploys whatever
+# the triggering ref points at.
+#
+# Use this for environments that must not be deployed automatically on a tag
+# push, such as production. Call it from a 'workflow_dispatch' workflow so that
+# the version can be picked in the GitHub web UI.
+#
+# The version is verified to exist in the registry before GitOps is touched, and
+# a Slack message is posted afterwards when the SLACK_WEBHOOK_URL secret is
+# available.
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        description: >-
+          Application name. Also the directory name looked up under
+          DEPLOY_CONFIG_REPOSITORY_BASE_PATH in the GitOps repository.
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      APPLICATION_VERSION:
+        description: 'The already-published version to promote, in SemVer format'
+        required: true
+        type: string
+      HELM_CHART_NAME:
+        description: >-
+          Name of the published Helm chart. Defaults to
+          '<APPLICATION_NAME>-chart', which is what
+          'helm-build-and-publish-to-oci-repo.yaml' pushes for the conventional
+          'conf/helm' layout.
+        default: ''
+        required: false
+        type: string
+      HELM_VERSION:
+        default: 'v3.22.0'
+        required: false
+        type: string
+      SLACK_MESSAGE:
+        description: >-
+          Message to post once the promotion has succeeded. Defaults to
+          '<APPLICATION_NAME> version upgrade <APPLICATION_VERSION> to
+          <DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS>'. Posted only when the
+          SLACK_WEBHOOK_URL secret is available.
+        default: ''
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+      IMAGE_TAG_PREFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_SUFFIX:
+        default: ''
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY:
+        default: 'fmidev/openshift-apps-gitops'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_SERVER_URL:
+        default: 'https://github.com'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        default: 'main'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
+        default: '.'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS:
+        default: 'production'
+        required: false
+        type: string
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_TOKEN:
+        required: true
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+      SLACK_WEBHOOK_URL:
+        description: 'When set, the promotion is announced in Slack. Skipped when empty.'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the version has been published
+    runs-on: ubuntu-24.04
+    outputs:
+      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
+      SLACK_ENABLED: ${{ steps.slack.outputs.enabled }}
+    env:
+      # Passed through the environment rather than interpolated into the shell
+      # commands below, so that a version typed into a 'workflow_dispatch' form
+      # cannot break out of the script.
+      APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
+      APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+      DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
+      IMAGE_REFERENCE: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.APPLICATION_NAME }}:${{ inputs.IMAGE_TAG_PREFIX }}${{ inputs.APPLICATION_VERSION }}${{ inputs.IMAGE_TAG_SUFFIX }}'
+      HELM_CHART_REFERENCE: "oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.HELM_CHART_NAME || format('{0}-chart', inputs.APPLICATION_NAME) }}"
+    steps:
+      - name: Validate SemVer
+        run: |
+          echo "Application version: ${APPLICATION_VERSION}"
+          # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+          if printf '%s' "${APPLICATION_VERSION}" | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
+            echo "Version matches the SemVer format"
+          else
+            echo "::error::Version '${APPLICATION_VERSION}' does not match the SemVer format"
+            exit 1
+          fi
+
+      - name: Registry login
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: '${{ inputs.IMAGE_REGISTRY }}'
+          username: '${{ secrets.IMAGE_REGISTRY_USER }}'
+          password: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      # The image is checked first: it is what actually runs in the cluster, and
+      # a version that was never built must not reach GitOps.
+      - name: Verify the container image exists
+        run: |
+          echo "Looking up ${IMAGE_REFERENCE}"
+          if ! docker buildx imagetools inspect "${IMAGE_REFERENCE}"; then
+            echo "::error::No container image '${IMAGE_REFERENCE}' in the registry. Has version ${APPLICATION_VERSION} been built?"
+            exit 1
+          fi
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: '${{ inputs.HELM_VERSION }}'
+
+      - name: Verify the Helm chart exists
+        env:
+          IMAGE_REGISTRY: '${{ inputs.IMAGE_REGISTRY }}'
+          IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
+          IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+        run: |
+          printf '%s' "${IMAGE_REGISTRY_TOKEN}" | \
+            helm registry login "${IMAGE_REGISTRY}" --username "${IMAGE_REGISTRY_USER}" --password-stdin
+          echo "Looking up ${HELM_CHART_REFERENCE} version ${APPLICATION_VERSION}"
+          if ! helm show chart "${HELM_CHART_REFERENCE}" --version "${APPLICATION_VERSION}"; then
+            echo "::error::No Helm chart '${HELM_CHART_REFERENCE}' version ${APPLICATION_VERSION} in the registry. Has version ${APPLICATION_VERSION} been built?"
+            exit 1
+          fi
+          helm registry logout "${IMAGE_REGISTRY}" || true
+
+      - name: Check whether Slack notifications are configured
+        id: slack
+        env:
+          # The 'secrets' context cannot be read from a job-level 'if:', so
+          # whether the webhook is available is resolved here and passed on as a
+          # job output. Only the true/false verdict leaves this step.
+          SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
+        run: |
+          if [ -n "${SLACK_WEBHOOK_URL}" ]; then
+            echo 'SLACK_WEBHOOK_URL is set, the promotion will be announced in Slack'
+            echo 'enabled=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'SLACK_WEBHOOK_URL is not set, skipping the Slack notification'
+            echo 'enabled=false' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### Promoting ${APPLICATION_NAME} ${APPLICATION_VERSION}"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Application | \`${APPLICATION_NAME}\` |"
+            echo "| Version | \`${APPLICATION_VERSION}\` |"
+            echo "| Environments | \`${DEPLOY_ENVIRONMENTS}\` |"
+            echo "| Image | \`${IMAGE_REFERENCE}\` |"
+            echo "| Helm chart | \`${HELM_CHART_REFERENCE}\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  update-openshift-app-version:
+    name: Update version in OpenShift GitOps
+    needs: verify
+    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.4.0
+    with:
+      APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
+      APPLICATION_VERSION: ${{ needs.verify.outputs.APPLICATION_VERSION }}
+      HELM_CHART_NAME: ${{ inputs.HELM_CHART_NAME }}
+      IMAGE_TAG_PREFIX: ${{ inputs.IMAGE_TAG_PREFIX }}
+      IMAGE_TAG_SUFFIX: ${{ inputs.IMAGE_TAG_SUFFIX }}
+      DEPLOY_CONFIG_REPOSITORY: ${{ inputs.DEPLOY_CONFIG_REPOSITORY }}
+      DEPLOY_CONFIG_REPOSITORY_SERVER_URL: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_SERVER_URL }}
+      DEPLOY_CONFIG_REPOSITORY_BRANCH: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BRANCH }}
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}
+    secrets:
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
+
+  notify:
+    name: Announce in Slack
+    needs: [verify, update-openshift-app-version]
+    # Only announce a promotion that actually landed, and only when a webhook
+    # was passed in.
+    if: ${{ needs.verify.outputs.SLACK_ENABLED == 'true' }}
+    uses: fmidev/.github/.github/workflows/post-to-slack-deploy-automation-notifier.yaml@0.4.0
+    with:
+      slack_message: ${{ inputs.SLACK_MESSAGE || format('{0} version upgrade {1} to {2}', inputs.APPLICATION_NAME, inputs.APPLICATION_VERSION, inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS) }}
+    secrets:
+      SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'

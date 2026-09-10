@@ -1,0 +1,175 @@
+name: Build and deploy to OpenShift
+
+# Builds, publishes and deploys the triggering ref. Normally called on a tag
+# push, with the tag as the application version.
+#
+# The three jobs below are the whole pipeline: the container image and the Helm
+# chart are published in parallel, and only once both have succeeded are the
+# version references in the OpenShift GitOps repository rewritten. Argo CD
+# reconciles from there; nothing here talks to a cluster.
+#
+# Deploy production with 'openshift-promote.yaml' instead of listing it in
+# DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS here, so that what reaches production is
+# a version staging has already run.
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        description: >-
+          Application name. Also the image name, and the directory looked up
+          under DEPLOY_CONFIG_REPOSITORY_BASE_PATH in the GitOps repository.
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      APPLICATION_VERSION:
+        description: 'Version to build and deploy, in SemVer format. Defaults to the triggering ref.'
+        default: '${{ github.ref_name }}'
+        required: false
+        type: string
+      APPLICATION_BUILD_CONTEXT:
+        default: '.'
+        required: false
+        type: string
+      HELM_CHART_PATH:
+        default: 'conf/helm'
+        required: false
+        type: string
+      HELM_CHART_NAME:
+        description: >-
+          Name of the published Helm chart, which is the top-level key read from
+          values.yaml in the GitOps repository. Defaults to
+          '<APPLICATION_NAME>-chart'.
+        default: ''
+        required: false
+        type: string
+      IMAGE_FILE:
+        description: 'Path to the Containerfile/Dockerfile, relative to APPLICATION_BUILD_CONTEXT'
+        default: 'Dockerfile'
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+      IMAGE_TAG_PREFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_SUFFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_PLATFORMS:
+        default: ''
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY:
+        default: 'fmidev/openshift-apps-gitops'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_SERVER_URL:
+        default: 'https://github.com'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        default: 'main'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
+        default: '.'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS:
+        description: 'Comma-separated environments to deploy to, e.g. development,staging'
+        default: 'development'
+        required: false
+        type: string
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_TOKEN:
+        required: true
+      IMAGE_BUILD_ARGS:
+        required: false
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-24.04
+    outputs:
+      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
+    steps:
+      - name: Validate SemVer
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script, so that a ref name cannot break out of the shell.
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+        run: |
+          echo "Application version: ${APPLICATION_VERSION}"
+          # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+          if printf '%s' "${APPLICATION_VERSION}" | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
+            echo "Version matches the SemVer format"
+          else
+            echo "::error::Version '${APPLICATION_VERSION}' does not match the SemVer format"
+            exit 1
+          fi
+
+  deploy-image:
+    name: Docker build and push
+    needs: setup
+    uses: fmidev/.github/.github/workflows/docker-build-and-push.yaml@0.4.0
+    with:
+      IMAGE_NAME: ${{ inputs.APPLICATION_NAME }}
+      IMAGE_FILE: ${{ inputs.IMAGE_FILE }}
+      IMAGE_TAG: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      IMAGE_TAG_PREFIX: ${{ inputs.IMAGE_TAG_PREFIX }}
+      IMAGE_TAG_SUFFIX: ${{ inputs.IMAGE_TAG_SUFFIX }}
+      IMAGE_PLATFORMS: ${{ inputs.IMAGE_PLATFORMS }}
+      IMAGE_BUILD_CONTEXT: ${{ inputs.APPLICATION_BUILD_CONTEXT }}
+      IMAGE_REGISTRY: ${{ inputs.IMAGE_REGISTRY }}
+      IMAGE_REGISTRY_NAMESPACE: ${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
+    secrets:
+      IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
+      IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+      IMAGE_BUILD_ARGS: '${{ secrets.IMAGE_BUILD_ARGS }}'
+
+  deploy-helm-to-oci:
+    name: Helm publish to OCI registry
+    needs: setup
+    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yaml@0.4.0
+    with:
+      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      HELM_CHART_PATH: ${{ inputs.HELM_CHART_PATH }}
+      IMAGE_REGISTRY: ${{ inputs.IMAGE_REGISTRY }}
+      IMAGE_REGISTRY_NAMESPACE: ${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
+    secrets:
+      IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
+      IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+
+  update-openshift-app-version:
+    name: Update version in OpenShift GitOps
+    needs: [setup, deploy-image, deploy-helm-to-oci]
+    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.4.0
+    with:
+      APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
+      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      HELM_CHART_NAME: ${{ inputs.HELM_CHART_NAME }}
+      IMAGE_TAG_PREFIX: ${{ inputs.IMAGE_TAG_PREFIX }}
+      IMAGE_TAG_SUFFIX: ${{ inputs.IMAGE_TAG_SUFFIX }}
+      DEPLOY_CONFIG_REPOSITORY: ${{ inputs.DEPLOY_CONFIG_REPOSITORY }}
+      DEPLOY_CONFIG_REPOSITORY_SERVER_URL: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_SERVER_URL }}
+      DEPLOY_CONFIG_REPOSITORY_BRANCH: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BRANCH }}
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: ${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}
+    secrets:
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'

@@ -1,0 +1,34 @@
+# yamllint configuration.
+#
+# Relaxed on layout, strict on the things that change meaning. A duplicate key silently discards
+# one of the two values and a tab is a parse error, and neither is caught anywhere else in this
+# repository: nothing here is compiled, and a broken shared workflow is found by the repository
+# that calls it.
+#
+# Kept deliberately identical to the configuration in the FMI GitHub Enterprise 'pak/.github'
+# repository, which holds the same workflows for the internal instance. The two repositories are
+# maintained together, so a contributor moving between them meets the same rules and a fix made in
+# one transfers unchanged to the other.
+extends: default
+
+rules:
+  # Disabled. This repository is nothing but workflows, where a single '${{ }}' expression or a
+  # SemVer regex routinely runs past any sensible limit, and most of the overruns sit inside 'run:'
+  # block scalars. A '#' there is shell, not YAML, so `yamllint disable-line` cannot even be
+  # expressed at the point it would apply, and the alternative is rewrapping shell in workflows
+  # other repositories depend on.
+  line-length: disable
+
+  # `on:` in a workflow is the YAML 1.1 boolean `on`. Every GitHub workflow ever written trips
+  # this, and renaming it is not an option.
+  truthy:
+    check-keys: false
+
+  # Comment layout is a matter of taste and these files use it heavily.
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+
+  document-start: disable
+  empty-lines:
+    max: 2

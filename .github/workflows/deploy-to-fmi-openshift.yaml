@@ -1,5 +1,23 @@
 name: Build and Deploy to OpenShift
 
+# DEPRECATED. Kept only so that repositories still pinned to it keep working.
+#
+# This is the original single-job pipeline: it bumps a tag by itself with a
+# third-party action, builds with Buildah, publishes the chart, and edits the
+# GitOps repository, all in one job with no verification between the stages. It
+# has been replaced by 'openshift-deploy.yaml', which does the same work in
+# separate reusable workflows, validates the version, and can be paired with
+# 'openshift-promote.yaml' for environments that must not deploy automatically.
+#
+# No repository in the fmidev organisation calls this workflow any more. It is
+# scheduled for removal in the next major release; migrate to
+# 'openshift-deploy.yaml' and drive the version from a tag push instead of
+# letting the workflow invent one.
+#
+# Its actions are SHA-pinned like everything else here, but it is otherwise
+# unmaintained: it is not covered by the improvements made to the workflows
+# around it.
+
 on:
   workflow_call:
     inputs:
@@ -42,16 +60,16 @@ on:
 jobs:
   update-versions:
     name: Update Versions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Push to Registry action
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: "0"
 
       - name: Generate tag
         id: generate_tag
-        uses: anothrNick/github-tag-action@1.64.0
+        uses: anothrNick/github-tag-action@4ed44965e0db8dab2b466a16da04aec3cc312fd8 # 1.75.0
         env:
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
           DEFAULT_BUMP: 'patch'
@@ -59,7 +77,7 @@ jobs:
           INITIAL_VERSION: '0.0.0'
 
       - name: Registry login
-        uses: redhat-actions/podman-login@v1
+        uses: redhat-actions/podman-login@50c2d9a331bb67c8fdab99b86455fad05e2e3252 # v2.0
         with:
           registry: '${{ inputs.IMAGE_REGISTRY }}'
           username: '${{ secrets.IMAGE_REGISTRY_USER }}'
@@ -67,16 +85,19 @@ jobs:
 
       - name: Build image
         id: build_image
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@719e3c40d8af9790c23eca13f7daa339f2867034 # v3.1.0
         with:
           image: '${{ inputs.APPLICATION_NAME }}'
           layers: false
+          # buildah-build v3 changed the default to 'true'; kept at the v2
+          # default so the published image layout does not change.
+          squash: false
           tags: '${{ steps.generate_tag.outputs.new_tag }}'
           dockerfiles: |
             ./Dockerfile
 
       - name: Push to registry
-        uses: redhat-actions/push-to-registry@v2
+        uses: redhat-actions/push-to-registry@94ade333c38ecc0e60e94785125d9a52ca423b37 # v3.0.0
         id: push
         with:
           image: '${{ steps.build_image.outputs.image }}'
@@ -89,7 +110,7 @@ jobs:
           echo "${{ toJSON(steps.push.outputs) }}"
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4.0.0
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: 'v3.13.3'
 
@@ -100,15 +121,15 @@ jobs:
           helm registry login ${{ inputs.IMAGE_REGISTRY }} --username ${{ secrets.IMAGE_REGISTRY_USER }} --password ${{ secrets.IMAGE_REGISTRY_TOKEN }}
           helm dependency build
           helm package . --version ${{ steps.generate_tag.outputs.new_tag }}
-          helm push *.tgz 'oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}'
+          helm push ./*.tgz 'oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}'
 
       - name: Install SSH Client
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
         with:
           ssh-private-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
 
       - name: Check out remote code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
           ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
@@ -123,9 +144,12 @@ jobs:
           yq -i '."${{ inputs.APPLICATION_NAME }}-chart".application.deployment.image.tag = "${{ steps.build_image.outputs.tags }}"' values.yaml
 
       - name: Commit files
+        env:
+          COMMIT_AUTHOR_NAME: '${{ github.event.head_commit.author.name || github.actor }}'
+          COMMIT_AUTHOR_EMAIL: "${{ github.event.head_commit.author.email || format('{0}@users.noreply.github.com', github.actor) }}"
         run: |
-          git config --local user.email '${{ github.event.head_commit.author.email }}'
-          git config --local user.name '${{ github.event.head_commit.author.name }} (via automation)'
+          git config --local user.email "${COMMIT_AUTHOR_EMAIL}"
+          git config --local user.name "${COMMIT_AUTHOR_NAME} (via automation)"
           git status
           git pull
           git diff
@@ -133,7 +157,7 @@ jobs:
           git commit --all --message="Update '${{ inputs.APPLICATION_NAME }}' version to '${{ steps.build_image.outputs.tags }}'"
 
       - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@v4.5.0
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
         with:
           ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
           repository-name: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
