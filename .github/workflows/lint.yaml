@@ -1,0 +1,103 @@
+name: Lint
+
+# Nothing in this repository is built or tested by the repository itself: every
+# workflow here runs on behalf of some other repository, so a mistake is found
+# by whoever called it, mid-deployment. These checks are the only gate before
+# that.
+#
+# The linters run in containers pinned by digest rather than from the runner
+# image. GitHub-hosted runners do ship both tools' dependencies, but their
+# versions move with the runner image — shellcheck alone differs between
+# ubuntu-24.04 and ubuntu-26.04 — so a finding could appear or disappear on a
+# commit that changed nothing here. Pinning the containers keeps a lint result
+# reproducible, and reproducible on any runner.
+#
+# Dependabot does not track an image named inside a 'run:' step: bump these
+# digests by hand together with the tag.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+
+  workflows:
+    name: Workflows
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Catches what YAML linting cannot see: expressions that do not parse,
+      # unknown contexts, actions on retired runners, and shellcheck findings in
+      # 'run:' scripts. actionlint only reads files, hence no network and a
+      # read-only mount.
+      - name: actionlint
+        run: |
+          docker run --rm \
+            --network=none \
+            --read-only \
+            --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            -v "${PWD}:/repo:ro" --workdir /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+
+  yaml:
+    name: YAML
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # --strict, so a warning fails the build too. Rules are in .yamllint.yaml.
+      # yamllint has no maintained image of its own, so it is installed into the
+      # official Python image at a pinned version; that install is why this one
+      # needs the network and a writable filesystem.
+      - name: yamllint
+        run: |
+          docker run --rm \
+            --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            -v "${PWD}:/repo:ro" --workdir /repo \
+            python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc \
+            sh -c 'pip install --quiet --no-cache-dir --root-user-action=ignore yamllint==1.38.0 && yamllint --strict .'
+
+  security:
+    name: Security
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Audits for the failure modes specific to shared CI: an untrusted value
+      # reaching a shell, a mutable action reference, a credential left in the
+      # workspace. Accepted findings and the SHA-pinning policy are configured
+      # in .github/zizmor.yml, and the audit is expected to report nothing.
+      #
+      # --offline, so no GITHUB_TOKEN is needed and a pull request from a fork
+      # gets the same result as a push to main.
+      - name: zizmor
+        run: |
+          docker run --rm \
+            --network=none \
+            --read-only \
+            --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            -v "${PWD}:/repo:ro" --workdir /repo \
+            ghcr.io/zizmorcore/zizmor:1.30.1@sha256:a2eb396d886c053073405c7a980f2139ba2248ec172243cfa3841e57196e8101 \
+            --offline --color always --config .github/zizmor.yml .

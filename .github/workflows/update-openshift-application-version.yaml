@@ -1,0 +1,221 @@
+name: Update application version to OpenShift GitOps
+
+# Rewrites the version references for an application in the OpenShift GitOps
+# repository, which Argo CD then reconciles onto the cluster. This is the last
+# mile of both 'openshift-deploy.yaml' and 'openshift-promote.yaml': nothing
+# here builds or pushes anything, and nothing here talks to a cluster.
+#
+# For every environment in DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS it expects
+#
+#   <base path>/<application name>/<environment>/Chart.yaml
+#   <base path>/<application name>/<environment>/values.yaml
+#
+# to exist in DEPLOY_CONFIG_REPOSITORY, and rewrites the chart version, the
+# first chart dependency's version, and the container image tag.
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        description: >-
+          Application name. Also the directory looked up under
+          DEPLOY_CONFIG_REPOSITORY_BASE_PATH in the GitOps repository, and the
+          '<name>-chart' key read from values.yaml.
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      APPLICATION_VERSION:
+        default: '${{ github.ref_name }}'
+        required: false
+        type: string
+      HELM_CHART_KEY:
+        description: >-
+          Top-level key read from values.yaml. Defaults to
+          '<APPLICATION_NAME>-chart'. Not necessarily the published chart's name:
+          an umbrella chart that references the application chart under a
+          dependency alias keys its values by the alias.
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_PREFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_SUFFIX:
+        default: ''
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY:
+        default: 'fmidev/openshift-apps-gitops'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_SERVER_URL:
+        default: 'https://github.com'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        description: >-
+          Branch of the GitOps repository to commit to. Declared but silently
+          ignored before 0.4.0 — a caller that sets it should check the value
+          names a branch Argo CD actually reconciles.
+        default: 'main'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
+        default: '.'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS:
+        default: 'development,staging'
+        required: false
+        type: string
+    secrets:
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+
+# The GitOps repository is written to over SSH with a deploy key, so no
+# GITHUB_TOKEN permission is needed on the calling repository.
+permissions:
+  contents: read
+
+jobs:
+  update-versions:
+    name: Update Versions
+    runs-on: ubuntu-24.04
+    steps:
+      # 'persist-credentials: true' is required here, unlike everywhere else in
+      # this repository: the deploy key has to stay in the local git config for
+      # the push below.
+      - name: Check out GitOps
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+          github-server-url: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_SERVER_URL }}'
+          ref: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BRANCH }}'
+          ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
+          persist-credentials: true
+
+      # Every value that reaches the shell or yq is passed through the
+      # environment and read back with 'strenv()', never interpolated into the
+      # expression. An application name or version typed into a
+      # 'workflow_dispatch' form therefore cannot break out of the script.
+      - name: Update Helm chart
+        env:
+          APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+          CHART_KEY: "${{ inputs.HELM_CHART_KEY || format('{0}-chart', inputs.APPLICATION_NAME) }}"
+          IMAGE_TAG: '${{ inputs.IMAGE_TAG_PREFIX }}${{ inputs.APPLICATION_VERSION }}${{ inputs.IMAGE_TAG_SUFFIX }}'
+          BASE_PATH: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}'
+          DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
+          DEPLOY_CONFIG_REPOSITORY: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+        run: |
+          # An empty list would leave the loop below running zero times, commit
+          # nothing, and report success: a deployment that deployed nothing.
+          if [ -z "${DEPLOY_ENVIRONMENTS}" ]; then
+            echo "::error::DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS is empty, there is nothing to deploy to"
+            exit 1
+          fi
+
+          # Split on commas and whitespace alike — 0.3.3 accepted both
+          # 'development,staging' and 'development staging' — through a
+          # here-string, which unlike an unquoted expansion is never subject to
+          # pathname expansion.
+          read -ra environments <<< "${DEPLOY_ENVIRONMENTS//,/ }"
+
+          updated=0
+          for environment in "${environments[@]}"; do
+            target="${BASE_PATH}/${APPLICATION_NAME}/${environment}"
+            if [ ! -d "${target}" ]; then
+              echo "::error::No directory '${target}' in ${DEPLOY_CONFIG_REPOSITORY}. Is the environment name correct?"
+              exit 1
+            fi
+            # Checked before yq is asked anything: a query against a missing file
+            # would leave its guard comparing an empty string, skipping the
+            # diagnosis and failing later with a raw yq error.
+            for f in Chart.yaml values.yaml; do
+              if [ ! -f "${target}/${f}" ]; then
+                echo "::error::'${target}' has no ${f}"
+                exit 1
+              fi
+            done
+
+            # yq creates whatever path it is given, so a key that does not match
+            # what GitOps actually holds would append a new block that nothing
+            # reads, leaving the real image tag untouched while the job reports
+            # success. The full path down to the tag is required to exist, not
+            # just the top-level key: a partial match appends just as silently.
+            if [ "$(yq '.dependencies | length' "${target}/Chart.yaml")" = '0' ]; then
+              echo "::error::'${target}/Chart.yaml' declares no dependencies to set a version on"
+              exit 1
+            fi
+            if [ "$(yq '.[strenv(CHART_KEY)].application.deployment.image | has("tag")' "${target}/values.yaml")" != 'true' ]; then
+              echo "::error::'${target}/values.yaml' has no '${CHART_KEY}.application.deployment.image.tag' to update. Set HELM_CHART_KEY if the values key is not named after the application."
+              exit 1
+            fi
+
+            echo "Updating ${target} to ${APPLICATION_VERSION}"
+            yq -i '.dependencies[0].version = strenv(APPLICATION_VERSION)' "${target}/Chart.yaml"
+            yq -i '.version = strenv(APPLICATION_VERSION)' "${target}/Chart.yaml"
+            yq -i '.[strenv(CHART_KEY)].application.deployment.image.tag = strenv(IMAGE_TAG)' "${target}/values.yaml"
+            updated=$(( updated + 1 ))
+          done
+
+          # A list of nothing but separators leaves the loop above running zero
+          # times. Without this the job would commit nothing and report success,
+          # and a promotion would go on to announce a deployment that never
+          # happened.
+          if [ "${updated}" -eq 0 ]; then
+            echo "::error::'${DEPLOY_ENVIRONMENTS}' names no environments to deploy to"
+            exit 1
+          fi
+          echo "Updated ${updated} environment(s)"
+
+      - name: Commit and push
+        env:
+          # 'github.event.head_commit' only exists for 'push' events. Fall back
+          # to the actor so that manually dispatched runs can commit too;
+          # without a fallback 'git commit' fails there with "empty ident name".
+          COMMIT_AUTHOR_NAME: '${{ github.event.head_commit.author.name || github.actor }}'
+          COMMIT_AUTHOR_EMAIL: "${{ github.event.head_commit.author.email || format('{0}@users.noreply.github.com', github.actor) }}"
+          APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+          DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
+          DEPLOY_CONFIG_REPOSITORY: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+        run: |
+          git config --local user.email "${COMMIT_AUTHOR_EMAIL}"
+          git config --local user.name "${COMMIT_AUTHOR_NAME} (via automation)"
+          git diff
+
+          # Re-running a deployment of a version that is already in GitOps
+          # leaves nothing to commit, and 'git commit' would fail the job. That
+          # is a successful no-op, not an error.
+          if git diff --quiet; then
+            echo "GitOps already references ${APPLICATION_VERSION}, nothing to commit"
+            exit 0
+          fi
+
+          git commit --all --message="Update ${APPLICATION_NAME} ${DEPLOY_ENVIRONMENTS} version to ${APPLICATION_VERSION}"
+
+          # Several applications share one GitOps repository, so two deployments
+          # running at once race on the push. Concurrency groups cannot help:
+          # they are scoped to the repository that calls this workflow, and the
+          # racing runs are in different repositories. Rebase and retry instead.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "Push rejected, rebasing onto the branch head and retrying (attempt ${attempt}/5)"
+            sleep "$(( attempt * 5 ))"
+            # Not left to errexit: a conflicting rebase would otherwise kill the
+            # step with git's own output, leaving the clone mid-rebase and the
+            # diagnosis below unreachable.
+            if ! git pull --rebase; then
+              git rebase --abort || true
+              echo "::error::Could not rebase onto ${DEPLOY_CONFIG_REPOSITORY}. Two deployments have edited the same file; re-run this job."
+              exit 1
+            fi
+          done
+
+          echo "::error::Could not push to ${DEPLOY_CONFIG_REPOSITORY} after 5 attempts"
+          exit 1

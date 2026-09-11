@@ -1,0 +1,119 @@
+name: Helm build and publish to FMI private GitHub repository
+
+# Packages the calling repository's Helm chart and commits the resulting .tgz
+# into a git-based chart repository. This is the older of the two chart
+# publishing paths; new applications should publish to the OCI registry with
+# 'helm-build-and-publish-to-oci-repo.yaml' instead, which is what
+# 'openshift-deploy.yaml' calls and what Argo CD reads.
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      APPLICATION_VERSION:
+        default: '0.0.0'
+        required: false
+        type: string
+      HELM_CHART_PATH:
+        default: 'conf/helm'
+        required: false
+        type: string
+      HELM_VERSION:
+        default: 'v3.22.0'
+        required: false
+        type: string
+      HELM_REPOSITORY:
+        default: 'fmidev/private-helm-chart-repository'
+        required: false
+        type: string
+      HELM_REPOSITORY_BRANCH:
+        default: 'main'
+        required: false
+        type: string
+    secrets:
+      HELM_REPOSITORY_PRIVATE_DEPLOY_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  LOCAL_HELM_REPO_CLONE_DIR: 'helm-chart-repository'
+
+jobs:
+  build-and-publish:
+    name: Helm build and publish
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # 'persist-credentials: true' only on this checkout: the deploy key has to
+      # stay in the local git config for the push below. The application's own
+      # checkout above keeps no credentials.
+      - name: Checkout Helm repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: '${{ inputs.HELM_REPOSITORY }}'
+          ref: '${{ inputs.HELM_REPOSITORY_BRANCH }}'
+          ssh-key: '${{ secrets.HELM_REPOSITORY_PRIVATE_DEPLOY_KEY }}'
+          path: '${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
+          persist-credentials: true
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: '${{ inputs.HELM_VERSION }}'
+
+      - name: Build Helm chart
+        env:
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+          HELM_CHART_PATH: '${{ inputs.HELM_CHART_PATH }}'
+          DESTINATION: '${{ github.workspace }}/${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
+        run: |
+          cd "${HELM_CHART_PATH}"
+          helm version
+          helm dependency build
+          helm package . --version "${APPLICATION_VERSION}" --destination "${DESTINATION}"
+
+      - name: Publish Helm chart
+        env:
+          # 'github.event.head_commit' only exists for 'push' events. Fall back
+          # to the actor so that manually dispatched runs can commit too;
+          # without a fallback 'git commit' fails there with "empty ident name".
+          COMMIT_AUTHOR_NAME: '${{ github.event.head_commit.author.name || github.actor }}'
+          COMMIT_AUTHOR_EMAIL: "${{ github.event.head_commit.author.email || format('{0}@users.noreply.github.com', github.actor) }}"
+          APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+          HELM_REPOSITORY: '${{ inputs.HELM_REPOSITORY }}'
+        run: |
+          cd "${LOCAL_HELM_REPO_CLONE_DIR}"
+          git config --local user.email "${COMMIT_AUTHOR_EMAIL}"
+          git config --local user.name "${COMMIT_AUTHOR_NAME} (via automation)"
+          git add ./*.tgz
+          if git diff --cached --quiet; then
+            echo "${APPLICATION_NAME} ${APPLICATION_VERSION} is already published, nothing to commit"
+            exit 0
+          fi
+          git commit --message="Publish ${APPLICATION_NAME} version ${APPLICATION_VERSION}"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejected, rebasing onto the branch head and retrying (attempt ${attempt}/5)"
+            sleep "$(( attempt * 5 ))"
+            # Not left to errexit: a conflicting rebase would otherwise kill the
+            # step with git's own output and never reach the diagnosis below.
+            if ! git pull --rebase; then
+              git rebase --abort || true
+              echo "::error::Could not rebase onto ${HELM_REPOSITORY}. Re-run this job."
+              exit 1
+            fi
+          done
+          echo "::error::Could not push to ${HELM_REPOSITORY} after 5 attempts"
+          exit 1

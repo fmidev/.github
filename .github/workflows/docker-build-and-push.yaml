@@ -1,0 +1,176 @@
+name: Docker build and push
+
+# Builds the container image for the calling repository and pushes it to the
+# registry. Called by 'openshift-deploy.yaml', and directly by repositories that
+# publish an image but do not deploy through GitOps.
+
+on:
+  workflow_call:
+    inputs:
+      IMAGE_FILE:
+        description: 'Path to the Containerfile/Dockerfile, relative to the build context'
+        default: 'Dockerfile'
+        required: false
+        type: string
+      IMAGE_NAME:
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      IMAGE_TAG:
+        description: >-
+          Tag to push. When empty, the short commit SHA of the triggering commit
+          is used instead.
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_PREFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_SUFFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_BUILD_CONTEXT:
+        default: '.'
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+      IMAGE_PLATFORMS:
+        description: >-
+          Comma-separated build platforms, e.g. 'linux/amd64,linux/arm64'. Empty
+          builds for the runner's own platform only, which is what the OpenShift
+          clusters need.
+        default: ''
+        required: false
+        type: string
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_TOKEN:
+        required: true
+      IMAGE_BUILD_ARGS:
+        description: 'Newline-separated build arguments, passed to the build as-is'
+        required: false
+
+# The image is pushed with registry credentials, not with GITHUB_TOKEN, so the
+# job only ever needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Docker build and push
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Resolve the tag before logging in, so a misconfigured call fails before
+      # any credential is used.
+      - name: Resolve the image reference
+        id: tag
+        env:
+          IMAGE_NAME: '${{ inputs.IMAGE_NAME }}'
+          IMAGE_TAG: '${{ inputs.IMAGE_TAG }}'
+          IMAGE_TAG_PREFIX: '${{ inputs.IMAGE_TAG_PREFIX }}'
+          IMAGE_TAG_SUFFIX: '${{ inputs.IMAGE_TAG_SUFFIX }}'
+          IMAGE_BUILD_CONTEXT: '${{ inputs.IMAGE_BUILD_CONTEXT }}'
+          IMAGE_FILE: '${{ inputs.IMAGE_FILE }}'
+        run: |
+          # Checked here so that a misnamed repository fails before the registry
+          # login below, not after it with the registry's own "repository name
+          # must be lowercase". The default is the repository's name, which
+          # GitHub does not lowercase.
+          case "${IMAGE_NAME}" in
+            ''|[!a-z0-9]*|*[!a-z0-9._-]*)
+              echo "::error::'${IMAGE_NAME}' is not a valid image name: lowercase letters, digits and . _ - only. Set IMAGE_NAME when the repository name does not qualify."
+              exit 1
+              ;;
+          esac
+
+          # An empty IMAGE_TAG means "tag with the commit", which is how
+          # repositories that build on every push to a branch call this.
+          if [ -z "${IMAGE_TAG}" ]; then
+            IMAGE_TAG="${GITHUB_SHA:0:7}"
+            echo "No IMAGE_TAG given, using the short commit SHA ${IMAGE_TAG}"
+          fi
+          tag="${IMAGE_TAG_PREFIX}${IMAGE_TAG}${IMAGE_TAG_SUFFIX}"
+
+          # Rejected here rather than by the registry, which reports it as an
+          # opaque manifest error halfway through a deployment. Matched with
+          # 'case' rather than grep: grep is line-oriented, so a value whose
+          # first line happened to be valid would pass and then be pasted into
+          # the 'tags:' input as-is.
+          invalid=''
+          [ -z "${tag}" ] && invalid='it is empty'
+          [ "${#tag}" -gt 128 ] && invalid='it is longer than 128 characters'
+          case "${tag}" in
+            [!A-Za-z0-9_]*) invalid='it must start with a letter, a digit or an underscore' ;;
+            *[!A-Za-z0-9._-]*) invalid='it may only contain letters, digits and . _ -' ;;
+          esac
+          if [ -n "${invalid}" ]; then
+            echo "::error::'${tag}' is not a valid container image tag: ${invalid}"
+            exit 1
+          fi
+
+          # 'file' is resolved by buildx against the workspace for a local
+          # context, so it has to carry the context for a subdirectory build.
+          # For a remote context — a git URL in any of its spellings, or the
+          # empty string that makes the action fall back to the git context —
+          # buildx resolves the path inside the remote context itself, so the
+          # caller's IMAGE_FILE is passed through untouched. The checkout has
+          # already run, so "is it a directory here" is exactly the question
+          # buildx itself will answer.
+          if [ -d "${IMAGE_BUILD_CONTEXT}" ]; then
+            file="${IMAGE_BUILD_CONTEXT%/}/${IMAGE_FILE}"
+          else
+            echo "'${IMAGE_BUILD_CONTEXT}' is not a local directory, treating it as a remote context"
+            file="${IMAGE_FILE}"
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "file=${file}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Image tag: ${tag}"
+          echo "Containerfile: ${file}"
+
+      - name: Set up QEMU
+        if: ${{ inputs.IMAGE_PLATFORMS != '' }}
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Registry login
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: '${{ inputs.IMAGE_REGISTRY }}'
+          username: '${{ secrets.IMAGE_REGISTRY_USER }}'
+          password: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: '${{ inputs.IMAGE_BUILD_CONTEXT }}'
+          file: '${{ steps.tag.outputs.file }}'
+          platforms: '${{ inputs.IMAGE_PLATFORMS }}'
+          push: true
+          tags: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}'
+          build-args: ${{ secrets.IMAGE_BUILD_ARGS }}
+
+      - name: Summary
+        env:
+          IMAGE_REFERENCE: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}'
+        run: |
+          echo "Pushed \`${IMAGE_REFERENCE}\`" >> "${GITHUB_STEP_SUMMARY}"

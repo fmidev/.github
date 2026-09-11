@@ -1,0 +1,42 @@
+name: Post to Slack Workflow 'Deploy automation notifier'
+
+# Posts a plain text message to the deploy automation Slack channel through a
+# Slack Workflow Builder trigger URL, which expects a single 'message' variable.
+#
+# Note when copying this step anywhere: slackapi/slack-github-action changed its
+# contract at v2. Up to v1 the webhook URL was read from the SLACK_WEBHOOK_URL
+# environment variable and the webhook type was inferred; from v2 onwards the URL
+# is the 'webhook' input and 'webhook-type' has to be stated explicitly, or the
+# action throws.
+
+on:
+  workflow_call:
+    inputs:
+      slack_message:
+        description: 'The plain text message to send to the configured Slack channel'
+        required: true
+        type: string
+    secrets:
+      SLACK_WEBHOOK_URL:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Post to Slack
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Slack Send
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          webhook: '${{ secrets.SLACK_WEBHOOK_URL }}'
+          # 'webhook-trigger' is a Slack Workflow Builder trigger, which accepts
+          # the arbitrary JSON below. An 'incoming-webhook' would instead demand
+          # Slack's own message schema.
+          webhook-type: webhook-trigger
+          payload: |
+            {
+              "message": ${{ toJSON(inputs.slack_message) }}
+            }

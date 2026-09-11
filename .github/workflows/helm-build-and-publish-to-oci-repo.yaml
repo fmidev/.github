@@ -1,0 +1,85 @@
+name: Helm build and publish to OCI registry
+
+# Packages the calling repository's Helm chart and pushes it to the OCI
+# registry, where Argo CD pulls it from. Called by 'openshift-deploy.yaml'.
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_VERSION:
+        description: 'Chart version to package, in SemVer format'
+        default: '0.0.0'
+        required: false
+        type: string
+      HELM_CHART_PATH:
+        default: 'conf/helm'
+        required: false
+        type: string
+      HELM_VERSION:
+        description: >-
+          Helm to install. Kept on 3.x deliberately: the charts in the GitOps
+          repository and the Argo CD instance that reconciles them are Helm 3.
+        default: 'v3.22.0'
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+    secrets:
+      IMAGE_REGISTRY_USER:
+        required: true
+      IMAGE_REGISTRY_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    name: Helm build and publish
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: '${{ inputs.HELM_VERSION }}'
+
+      # Credentials go in through 'helm registry login --password-stdin' rather
+      # than on the command line, where they would be visible in 'ps' output on
+      # the runner and in any shell trace.
+      - name: Registry login
+        env:
+          IMAGE_REGISTRY: '${{ inputs.IMAGE_REGISTRY }}'
+          IMAGE_REGISTRY_USER: '${{ secrets.IMAGE_REGISTRY_USER }}'
+          IMAGE_REGISTRY_TOKEN: '${{ secrets.IMAGE_REGISTRY_TOKEN }}'
+        run: |
+          printf '%s' "${IMAGE_REGISTRY_TOKEN}" | \
+            helm registry login "${IMAGE_REGISTRY}" --username "${IMAGE_REGISTRY_USER}" --password-stdin
+
+      - name: Package and push the chart
+        env:
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+          HELM_CHART_PATH: '${{ inputs.HELM_CHART_PATH }}'
+          CHART_DESTINATION: 'oci://${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}'
+        run: |
+          cd "${HELM_CHART_PATH}"
+          helm version
+          helm dependency build
+          helm package . --version "${APPLICATION_VERSION}"
+          helm push ./*.tgz "${CHART_DESTINATION}"
+
+      - name: Log out of the registry
+        if: always()
+        env:
+          IMAGE_REGISTRY: '${{ inputs.IMAGE_REGISTRY }}'
+        run: helm registry logout "${IMAGE_REGISTRY}" || true

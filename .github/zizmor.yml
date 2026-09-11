@@ -1,0 +1,20 @@
+# zizmor configuration.
+#
+# zizmor audits these workflows for the failure modes that matter in shared CI:
+# untrusted values reaching a shell, mutable action references, and credentials
+# left behind in the workspace. It runs as the third job of 'lint.yaml'.
+#
+# The one entry below is an accepted finding, not a silenced one, and says why.
+# Nothing else is exempt: the audit is expected to come back clean.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # This repository's own reusable workflows stay on a release tag, so
+        # that one tag describes the whole set and a release is a single
+        # retagging rather than a SHA rewrite in five files. The tag is under
+        # this organisation's control, which is the difference to a third-party
+        # action.
+        fmidev/*: ref-pin
+        # Everything else is pinned by commit SHA.
+        "*": hash-pin
