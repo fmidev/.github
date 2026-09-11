@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this repository uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 loosely: while the major version is 0, a breaking change bumps the minor.
 
-## [0.4.0] — unreleased
+## [0.4.0] — 2026-09-11
 
 **Breaking — the workflow files are now `.yaml`, not `.yml`.** Update the path
 together with the tag:
@@ -29,6 +29,21 @@ nothing runs. Callers pinned to `@0.3.3` are unaffected.
 `HELM_REPOSITORY_PRIVATE_DEPLOY_KEY`.** It was required but never used. Callers
 using `secrets: inherit` need no change; a caller passing secrets explicitly must
 drop that line, or the call fails with "invalid input".
+
+**Breaking — `docker-build-and-push` no longer declares `CREATE_LATEST_TAG`.** It
+was declared but never implemented. A caller passing it fails with "invalid
+input"; drop the line.
+
+**Breaking — `DEPLOY_CONFIG_REPOSITORY_BRANCH` is now honored.** It was declared
+but silently ignored, so every deployment went to the GitOps repository's
+default branch regardless. A caller that sets it should check the value names a
+branch Argo CD actually reconciles before upgrading — a wrong branch now
+produces a green run that deploys nothing.
+
+**Breaking — a version carrying SemVer build metadata is rejected up front.**
+`1.2.3+hotfix` previously passed validation, published the Helm chart, and then
+failed the image push, since `+` cannot appear in an image tag. It now fails
+before anything is published.
 
 **Breaking — `deploy-via-rsync` and `deploy-to-fmi-openshift` are removed.** Both
 were obsolete and uncalled, and there is no replacement for either at this
@@ -50,8 +65,11 @@ superseded by `openshift-deploy` together with `openshift-promote`.
   callable.
 - New optional inputs, all defaulting to the previous behaviour:
   `IMAGE_TAG_PREFIX`, `IMAGE_TAG_SUFFIX`, `IMAGE_PLATFORMS`, `IMAGE_FILE`,
-  `HELM_CHART_PATH`, `HELM_VERSION`, `HELM_CHART_NAME`,
-  `DEPLOY_CONFIG_REPOSITORY_SERVER_URL`, and the `IMAGE_BUILD_ARGS` secret.
+  `HELM_CHART_PATH`, `HELM_VERSION`, `DEPLOY_CONFIG_REPOSITORY_SERVER_URL`, and
+  the `IMAGE_BUILD_ARGS` secret. `HELM_CHART_KEY` names the top-level key in the
+  GitOps values.yaml, and on `openshift-promote` is separate from
+  `HELM_CHART_NAME`, the published chart's registry name — set both when an
+  umbrella chart references the application chart under a dependency alias.
 - A build summary naming the image that was pushed, and a promotion summary
   naming the version, environments, image and chart.
 
@@ -62,10 +80,14 @@ superseded by `openshift-deploy` together with `openshift-promote`.
 - An empty or separator-only `DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS` updated
   nothing and reported success. It is now an error, as is an environment
   directory that does not exist in the GitOps repository.
-- `yq` creates whatever path it is given, so a chart name that did not match what
+- `yq` creates whatever path it is given, so a values key that did not match what
   the GitOps repository actually holds appended a block nothing reads while
   leaving the real image tag untouched — a green deployment that deployed
-  nothing. Both the chart key and the chart dependency must now already exist.
+  nothing. The full `<key>.application.deployment.image.tag` path and the chart
+  dependency must now already exist.
+- An image name with an uppercase letter — the default is the repository's name,
+  which GitHub does not lowercase — reached the registry before failing. It is
+  now rejected before the registry login.
 - A rejected push to the GitOps repository is rebased and retried, rather than
   failing the deployment. Several applications share one GitOps repository, so
   simultaneous deployments race on the push.

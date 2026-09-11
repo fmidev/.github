@@ -153,8 +153,11 @@ paths, and it expects, for every environment it is given:
 ```
 
 It rewrites `.version` and `.dependencies[0].version` in `Chart.yaml`, and
-`.<APPLICATION_NAME>-chart.application.deployment.image.tag` in `values.yaml`,
-then commits and pushes. A missing directory fails the job with a message naming
+`.<APPLICATION_NAME>-chart.application.deployment.image.tag` in `values.yaml`
+(override the key with `HELM_CHART_KEY` when it is not named after the
+application), then commits and pushes. Every rewritten path must already exist:
+`yq` would otherwise silently create it, producing a green deployment that
+deployed nothing. A missing directory fails the job with a message naming
 the path, rather than at the first `yq` call.
 
 Note that `APPLICATION_NAME` is the directory name in GitOps, not necessarily the

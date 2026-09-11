@@ -28,10 +28,12 @@ on:
         default: '${{ github.ref_name }}'
         required: false
         type: string
-      HELM_CHART_NAME:
+      HELM_CHART_KEY:
         description: >-
-          Name of the published Helm chart, which is the top-level key read from
-          values.yaml. Defaults to '<APPLICATION_NAME>-chart'.
+          Top-level key read from values.yaml. Defaults to
+          '<APPLICATION_NAME>-chart'. Not necessarily the published chart's name:
+          an umbrella chart that references the application chart under a
+          dependency alias keys its values by the alias.
         default: ''
         required: false
         type: string
@@ -52,6 +54,10 @@ on:
         required: false
         type: string
       DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        description: >-
+          Branch of the GitOps repository to commit to. Declared but silently
+          ignored before 0.4.0 — a caller that sets it should check the value
+          names a branch Argo CD actually reconciles.
         default: 'main'
         required: false
         type: string
@@ -88,7 +94,6 @@ jobs:
           ref: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BRANCH }}'
           ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
           persist-credentials: true
-          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
       # Every value that reaches the shell or yq is passed through the
       # environment and read back with 'strenv()', never interpolated into the
@@ -98,7 +103,7 @@ jobs:
         env:
           APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
           APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
-          CHART_KEY: "${{ inputs.HELM_CHART_NAME || format('{0}-chart', inputs.APPLICATION_NAME) }}"
+          CHART_KEY: "${{ inputs.HELM_CHART_KEY || format('{0}-chart', inputs.APPLICATION_NAME) }}"
           IMAGE_TAG: '${{ inputs.IMAGE_TAG_PREFIX }}${{ inputs.APPLICATION_VERSION }}${{ inputs.IMAGE_TAG_SUFFIX }}'
           BASE_PATH: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}'
           DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
@@ -111,35 +116,40 @@ jobs:
             exit 1
           fi
 
-          # 'IFS=' rather than '${VAR//,/ }': the latter is subject to pathname
-          # expansion, so an environment name containing '*' would be expanded
-          # against the GitOps checkout.
-          IFS=',' read -ra environments <<< "${DEPLOY_ENVIRONMENTS}"
+          # Split on commas and whitespace alike — 0.3.3 accepted both
+          # 'development,staging' and 'development staging' — through a
+          # here-string, which unlike an unquoted expansion is never subject to
+          # pathname expansion.
+          read -ra environments <<< "${DEPLOY_ENVIRONMENTS//,/ }"
 
           updated=0
           for environment in "${environments[@]}"; do
-            # Trimmed, so that a list written as 'development, staging' keeps
-            # working: the old word-splitting collapsed the space, splitting on
-            # ',' alone does not.
-            environment="$(printf '%s' "${environment}" | tr -d '[:space:]')"
-            [ -z "${environment}" ] && continue
-
             target="${BASE_PATH}/${APPLICATION_NAME}/${environment}"
             if [ ! -d "${target}" ]; then
               echo "::error::No directory '${target}' in ${DEPLOY_CONFIG_REPOSITORY}. Is the environment name correct?"
               exit 1
             fi
+            # Checked before yq is asked anything: a query against a missing file
+            # would leave its guard comparing an empty string, skipping the
+            # diagnosis and failing later with a raw yq error.
+            for f in Chart.yaml values.yaml; do
+              if [ ! -f "${target}/${f}" ]; then
+                echo "::error::'${target}' has no ${f}"
+                exit 1
+              fi
+            done
 
-            # yq creates whatever path it is given, so a name that does not match
+            # yq creates whatever path it is given, so a key that does not match
             # what GitOps actually holds would append a new block that nothing
             # reads, leaving the real image tag untouched while the job reports
-            # success. Both keys are required to exist already.
-            if [ "$(yq '.dependencies | length' "${target}/Chart.yaml")" -eq 0 ]; then
+            # success. The full path down to the tag is required to exist, not
+            # just the top-level key: a partial match appends just as silently.
+            if [ "$(yq '.dependencies | length' "${target}/Chart.yaml")" = '0' ]; then
               echo "::error::'${target}/Chart.yaml' declares no dependencies to set a version on"
               exit 1
             fi
-            if [ "$(yq 'has(strenv(CHART_KEY))' "${target}/values.yaml")" != 'true' ]; then
-              echo "::error::'${target}/values.yaml' has no '${CHART_KEY}' key. Set HELM_CHART_NAME if the chart is not named after the application."
+            if [ "$(yq '.[strenv(CHART_KEY)].application.deployment.image | has("tag")' "${target}/values.yaml")" != 'true' ]; then
+              echo "::error::'${target}/values.yaml' has no '${CHART_KEY}.application.deployment.image.tag' to update. Set HELM_CHART_KEY if the values key is not named after the application."
               exit 1
             fi
 

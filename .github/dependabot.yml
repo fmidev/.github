@@ -1,6 +1,6 @@
 # Dependabot must be at '.github/dependabot.yml'; the '.yml' spelling is
-# GitHub's, not a choice, and is the one exception to the '.yaml' convention
-# this repository otherwise follows.
+# GitHub's, not a choice. Same for '.github/zizmor.yml' — tool-mandated file
+# names are the exception to the '.yaml' convention the workflows follow.
 version: 2
 updates:
   # Covers the actions used by the workflows here. They are pinned by SHA with

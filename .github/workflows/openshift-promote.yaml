@@ -33,10 +33,20 @@ on:
         type: string
       HELM_CHART_NAME:
         description: >-
-          Name of the published Helm chart. Defaults to
-          '<APPLICATION_NAME>-chart', which is what
+          Name of the published Helm chart, as it exists in the OCI registry.
+          Defaults to '<APPLICATION_NAME>-chart', which is what
           'helm-build-and-publish-to-oci-repo.yaml' pushes for the conventional
           'conf/helm' layout.
+        default: ''
+        required: false
+        type: string
+      HELM_CHART_KEY:
+        description: >-
+          Top-level key read from values.yaml in the GitOps repository. Defaults
+          to HELM_CHART_NAME, and through it to '<APPLICATION_NAME>-chart'. Set
+          both when the published chart name and the values key differ, as they
+          do when an umbrella chart references the chart under a dependency
+          alias.
         default: ''
         required: false
         type: string
@@ -108,7 +118,6 @@ jobs:
     name: Verify the version has been published
     runs-on: ubuntu-24.04
     outputs:
-      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
       SLACK_ENABLED: ${{ steps.slack.outputs.enabled }}
     env:
       # Passed through the environment rather than interpolated into the shell
@@ -124,10 +133,14 @@ jobs:
         run: |
           echo "Application version: ${APPLICATION_VERSION}"
           # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
-          if printf '%s' "${APPLICATION_VERSION}" | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
+          # minus its optional build-metadata group: '+' cannot appear in a
+          # container image tag, so such a version was never published whole and
+          # the registry lookups below would fail on the malformed reference
+          # with a misleading "has it been built?".
+          if printf '%s' "${APPLICATION_VERSION}" | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$'; then
             echo "Version matches the SemVer format"
           else
-            echo "::error::Version '${APPLICATION_VERSION}' does not match the SemVer format"
+            echo "::error::Version '${APPLICATION_VERSION}' is not SemVer without build metadata, which is what an image tag can carry"
             exit 1
           fi
 
@@ -207,8 +220,8 @@ jobs:
     uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.4.0
     with:
       APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
-      APPLICATION_VERSION: ${{ needs.verify.outputs.APPLICATION_VERSION }}
-      HELM_CHART_NAME: ${{ inputs.HELM_CHART_NAME }}
+      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
+      HELM_CHART_KEY: ${{ inputs.HELM_CHART_KEY || inputs.HELM_CHART_NAME }}
       IMAGE_TAG_PREFIX: ${{ inputs.IMAGE_TAG_PREFIX }}
       IMAGE_TAG_SUFFIX: ${{ inputs.IMAGE_TAG_SUFFIX }}
       DEPLOY_CONFIG_REPOSITORY: ${{ inputs.DEPLOY_CONFIG_REPOSITORY }}

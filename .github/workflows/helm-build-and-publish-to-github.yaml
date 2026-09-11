@@ -64,7 +64,6 @@ jobs:
           ssh-key: '${{ secrets.HELM_REPOSITORY_PRIVATE_DEPLOY_KEY }}'
           path: '${{ env.LOCAL_HELM_REPO_CLONE_DIR }}'
           persist-credentials: true
-          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
       - name: Setup Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1

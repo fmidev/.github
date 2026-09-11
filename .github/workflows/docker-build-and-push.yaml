@@ -77,15 +77,27 @@ jobs:
 
       # Resolve the tag before logging in, so a misconfigured call fails before
       # any credential is used.
-      - name: Resolve the image tag
+      - name: Resolve the image reference
         id: tag
         env:
+          IMAGE_NAME: '${{ inputs.IMAGE_NAME }}'
           IMAGE_TAG: '${{ inputs.IMAGE_TAG }}'
           IMAGE_TAG_PREFIX: '${{ inputs.IMAGE_TAG_PREFIX }}'
           IMAGE_TAG_SUFFIX: '${{ inputs.IMAGE_TAG_SUFFIX }}'
           IMAGE_BUILD_CONTEXT: '${{ inputs.IMAGE_BUILD_CONTEXT }}'
           IMAGE_FILE: '${{ inputs.IMAGE_FILE }}'
         run: |
+          # Checked here so that a misnamed repository fails before the registry
+          # login below, not after it with the registry's own "repository name
+          # must be lowercase". The default is the repository's name, which
+          # GitHub does not lowercase.
+          case "${IMAGE_NAME}" in
+            ''|[!a-z0-9]*|*[!a-z0-9._-]*)
+              echo "::error::'${IMAGE_NAME}' is not a valid image name: lowercase letters, digits and . _ - only. Set IMAGE_NAME when the repository name does not qualify."
+              exit 1
+              ;;
+          esac
+
           # An empty IMAGE_TAG means "tag with the commit", which is how
           # repositories that build on every push to a branch call this.
           if [ -z "${IMAGE_TAG}" ]; then
@@ -111,28 +123,27 @@ jobs:
             exit 1
           fi
 
-          # 'file' is resolved by buildx against the workspace, not against the
-          # build context, so it has to carry the context for a subdirectory
-          # build. It is left unset for a non-local context (a git URL, or the
-          # empty string that makes the action fall back to the git context),
-          # where an absolute or URL-joined path would make buildx look for the
-          # Containerfile somewhere it does not exist.
-          case "${IMAGE_BUILD_CONTEXT}" in
-            ''|*://*|git@*|*.git|*.git#*)
-              echo "Non-local build context, leaving the Containerfile path to buildx"
-              file=''
-              ;;
-            *)
-              file="${IMAGE_BUILD_CONTEXT%/}/${IMAGE_FILE}"
-              ;;
-          esac
+          # 'file' is resolved by buildx against the workspace for a local
+          # context, so it has to carry the context for a subdirectory build.
+          # For a remote context — a git URL in any of its spellings, or the
+          # empty string that makes the action fall back to the git context —
+          # buildx resolves the path inside the remote context itself, so the
+          # caller's IMAGE_FILE is passed through untouched. The checkout has
+          # already run, so "is it a directory here" is exactly the question
+          # buildx itself will answer.
+          if [ -d "${IMAGE_BUILD_CONTEXT}" ]; then
+            file="${IMAGE_BUILD_CONTEXT%/}/${IMAGE_FILE}"
+          else
+            echo "'${IMAGE_BUILD_CONTEXT}' is not a local directory, treating it as a remote context"
+            file="${IMAGE_FILE}"
+          fi
 
           {
             echo "tag=${tag}"
             echo "file=${file}"
           } >> "${GITHUB_OUTPUT}"
           echo "Image tag: ${tag}"
-          echo "Containerfile: ${file:-<buildx default>}"
+          echo "Containerfile: ${file}"
 
       - name: Set up QEMU
         if: ${{ inputs.IMAGE_PLATFORMS != '' }}

@@ -35,11 +35,14 @@ on:
         default: 'conf/helm'
         required: false
         type: string
-      HELM_CHART_NAME:
+      HELM_VERSION:
+        default: 'v3.22.0'
+        required: false
+        type: string
+      HELM_CHART_KEY:
         description: >-
-          Name of the published Helm chart, which is the top-level key read from
-          values.yaml in the GitOps repository. Defaults to
-          '<APPLICATION_NAME>-chart'.
+          Top-level key read from values.yaml in the GitOps repository. Defaults
+          to '<APPLICATION_NAME>-chart'.
         default: ''
         required: false
         type: string
@@ -106,8 +109,6 @@ jobs:
   setup:
     name: Setup
     runs-on: ubuntu-24.04
-    outputs:
-      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
     steps:
       - name: Validate SemVer
         env:
@@ -117,10 +118,13 @@ jobs:
         run: |
           echo "Application version: ${APPLICATION_VERSION}"
           # Regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
-          if printf '%s' "${APPLICATION_VERSION}" | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
+          # minus its optional build-metadata group: '+' cannot appear in a
+          # container image tag, so a version carrying it would publish the Helm
+          # chart and then fail the image push, leaving a half-published release.
+          if printf '%s' "${APPLICATION_VERSION}" | grep --silent --perl-regexp '^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$'; then
             echo "Version matches the SemVer format"
           else
-            echo "::error::Version '${APPLICATION_VERSION}' does not match the SemVer format"
+            echo "::error::Version '${APPLICATION_VERSION}' is not SemVer without build metadata, which is what an image tag can carry"
             exit 1
           fi
 
@@ -131,7 +135,7 @@ jobs:
     with:
       IMAGE_NAME: ${{ inputs.APPLICATION_NAME }}
       IMAGE_FILE: ${{ inputs.IMAGE_FILE }}
-      IMAGE_TAG: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      IMAGE_TAG: ${{ inputs.APPLICATION_VERSION }}
       IMAGE_TAG_PREFIX: ${{ inputs.IMAGE_TAG_PREFIX }}
       IMAGE_TAG_SUFFIX: ${{ inputs.IMAGE_TAG_SUFFIX }}
       IMAGE_PLATFORMS: ${{ inputs.IMAGE_PLATFORMS }}
@@ -148,7 +152,7 @@ jobs:
     needs: setup
     uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yaml@0.4.0
     with:
-      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
+      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
       HELM_CHART_PATH: ${{ inputs.HELM_CHART_PATH }}
       IMAGE_REGISTRY: ${{ inputs.IMAGE_REGISTRY }}
       IMAGE_REGISTRY_NAMESPACE: ${{ inputs.IMAGE_REGISTRY_NAMESPACE }}
@@ -162,8 +166,8 @@ jobs:
     uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.4.0
     with:
       APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
-      APPLICATION_VERSION: ${{ needs.setup.outputs.APPLICATION_VERSION }}
-      HELM_CHART_NAME: ${{ inputs.HELM_CHART_NAME }}
+      APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
+      HELM_CHART_KEY: ${{ inputs.HELM_CHART_KEY }}
       IMAGE_TAG_PREFIX: ${{ inputs.IMAGE_TAG_PREFIX }}
       IMAGE_TAG_SUFFIX: ${{ inputs.IMAGE_TAG_SUFFIX }}
       DEPLOY_CONFIG_REPOSITORY: ${{ inputs.DEPLOY_CONFIG_REPOSITORY }}
