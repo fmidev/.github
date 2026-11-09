@@ -51,7 +51,7 @@ on:
         required: false
         type: string
       HELM_VERSION:
-        default: 'v3.22.0'
+        default: 'v3.22.1'
         required: false
         type: string
       APPLICATION_DISPLAY_NAME:
@@ -163,7 +163,7 @@ jobs:
     name: Compose the Slack message
     # Needs no GitHub token: it only reads its inputs.
     permissions: {}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       SLACK_MESSAGE: ${{ steps.message.outputs.message }}
     steps:
@@ -336,7 +336,7 @@ jobs:
   verify:
     name: Verify the version has been published
     needs: message
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       SLACK_ENABLED: ${{ steps.slack.outputs.enabled }}
     env:
@@ -365,7 +365,7 @@ jobs:
           fi
 
       - name: Registry login
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: '${{ inputs.IMAGE_REGISTRY }}'
           username: '${{ secrets.IMAGE_REGISTRY_USER }}'
