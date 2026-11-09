@@ -133,16 +133,18 @@ jobs:
     secrets: inherit
 ```
 
-The promotion runs in three stages:
+The promotion runs in four stages:
 
-1. **Verify.** The version is checked against the SemVer format, and the
+1. **Compose.** The Slack message is composed and its inputs checked, as
+   described below, so a mistyped issue fails before anything is looked up.
+2. **Verify.** The version is checked against the SemVer format, and the
    container image and the Helm chart for it must exist in the registry. The
    image is looked up first. A version that was never built fails here, before
    anything in GitOps has changed.
-2. **Update.** `update-openshift-application-version.yaml` rewrites the version
+3. **Update.** `update-openshift-application-version.yaml` rewrites the version
    references for every environment in
    `DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS`.
-3. **Announce.** When the `SLACK_WEBHOOK_URL` secret is available, the
+4. **Announce.** When the `SLACK_WEBHOOK_URL` secret is available, the
    promotion is posted to Slack through
    `post-to-slack-deploy-automation-notifier.yaml`. With no webhook the stage is
    skipped and the promotion still succeeds, so the secret is optional.
@@ -171,16 +173,17 @@ links:
 - The name is `APPLICATION_DISPLAY_NAME`, or `APPLICATION_NAME` when not set.
   It must not contain `|` or line breaks.
 - The version links to its release page, which GitHub also shows for a tag
-  without a release. The link assumes the repository tags its releases with
-  the bare version, `1.2.3` rather than `v1.2.3`, as `openshift-deploy.yaml`
-  expects.
-- The person is whoever started the run, or re-ran it. An app, such as
-  `github-actions[bot]`, links to its app page.
+  without a release. The link assumes that the calling repository is the one
+  tagging the release, and with the bare version, `1.2.3` rather than
+  `v1.2.3`, as `openshift-deploy.yaml` expects.
+- The person is whoever started the run; re-running failed jobs keeps them.
+  An app, such as `github-actions[bot]`, links to its app page.
 - `CHANGE_DESCRIPTION` follows a colon. Line breaks in it become spaces, and
   `&`, `<` and `>` are escaped, so it cannot form links or mentions such as
   `<!channel>`. Without it there is no colon.
 - `JIRA_ISSUE`, e.g. `PAK-123`, links to `JIRA_BASE_URL`, which defaults to
-  `https://jira.fmi.fi`, also when a caller passes it empty. `GITHUB_ISSUE` is
+  `https://jira.fmi.fi`, also when a caller passes it empty; it must be a
+  plain http(s) URL, without `?` or `#`. `GITHUB_ISSUE` is
   an issue number in the calling repository (`45` or `#45`), or the URL of an
   issue on this instance, shown as `#45` within the calling repository and as
   `owner/repo#45` elsewhere. The parentheses are left out when neither is
@@ -197,8 +200,8 @@ composed in a job that holds none, but should it be dropped anyway, a plain
 an empty message.
 
 `SLACK_MESSAGE` is the earlier interface: when set, it is posted verbatim
-instead, with none of the links, and a warning notes that the inputs above go
-unused. Use `APPLICATION_DISPLAY_NAME` instead.
+instead, with none of the links. The inputs above are then neither used nor
+validated, and a warning says so. Use `APPLICATION_DISPLAY_NAME` instead.
 
 ## What the GitOps repository must look like
 

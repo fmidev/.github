@@ -194,6 +194,15 @@ jobs:
             s="${s#"${s%%[![:space:]]*}"}"
             printf '%s' "${s%"${s##*[![:space:]]}"}"
           }
+          # Collapses line breaks and runs of whitespace into single spaces, so
+          # the message stays one line. Unicode line and paragraph separators,
+          # NEL and no-break spaces count too, which 'tr' alone, working byte by
+          # byte, would let through.
+          one_line() {
+            trim "$(printf '%s' "$1" \
+              | LC_ALL=C sed -e 's/\xe2\x80\xa8/ /g' -e 's/\xe2\x80\xa9/ /g' -e 's/\xc2\x85/ /g' -e 's/\xc2\xa0/ /g' \
+              | tr -s '[:space:]' ' ')"
+          }
           # Slack treats '&', '<' and '>' as control characters, so free text is
           # escaped before it goes into the message. With sed rather than
           # '${var//&/...}', where bash 5.2 reads '&' in the replacement as the
@@ -201,6 +210,30 @@ jobs:
           escape() {
             printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
           }
+          publish() {
+            # Logged with workflow commands suspended, since a legacy message
+            # may contain a line starting with '::'.
+            local token="end_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
+            echo "::stop-commands::${token}"
+            printf 'Slack message: %s\n' "$1"
+            echo "::${token}::"
+            # The delimiter is random for the same reason: a legacy message may
+            # span several lines. Plain bash, so that the step runs on any
+            # runner.
+            local delimiter="EOF_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
+            printf 'message<<%s\n%s\n%s\n' "${delimiter}" "$1" "${delimiter}" >> "${GITHUB_OUTPUT}"
+          }
+
+          # The legacy message is posted as it is. The inputs it overrides are
+          # not validated: a typo in one must not stop a promotion that does
+          # not use it.
+          if [ -n "${LEGACY_MESSAGE}" ]; then
+            if [ -n "${DISPLAY_NAME}${CHANGE_DESCRIPTION}${JIRA_ISSUE}${ISSUE}" ]; then
+              echo "::warning::SLACK_MESSAGE is set and is posted as it is, so APPLICATION_DISPLAY_NAME, CHANGE_DESCRIPTION, JIRA_ISSUE and GITHUB_ISSUE are not used"
+            fi
+            publish "${LEGACY_MESSAGE}"
+            exit 0
+          fi
 
           name="$(trim "${DISPLAY_NAME}")"
           name="${name:-${APPLICATION_NAME}}"
@@ -213,6 +246,18 @@ jobs:
               ;;
           esac
 
+          # A caller forwarding an empty input of its own passes '', which does
+          # not trigger the input's default. Checked whenever given, so that a
+          # wrong URL fails before the first issue is linked with it. '?', '#'
+          # and '\' would put /browse/<key> inside a query or a fragment.
+          jira_base_url="$(trim "${JIRA_BASE_URL}")"
+          jira_base_url="${jira_base_url:-https://jira.fmi.fi}"
+          url_re='^https?://[^[:space:]|<>&?#\]+$'
+          if ! [[ "${jira_base_url,,}" =~ ${url_re} ]]; then
+            echo "::error::JIRA_BASE_URL $(quote "${JIRA_BASE_URL}") is not a URL such as https://jira.fmi.fi"
+            exit 1
+          fi
+
           links=()
           # Typed into a form, so surrounding whitespace and a lowercase key are
           # accepted.
@@ -221,14 +266,6 @@ jobs:
           if [ -n "${jira_issue}" ]; then
             if ! [[ "${jira_issue}" =~ ^[A-Z][A-Z0-9_]+-[1-9][0-9]*$ ]]; then
               echo "::error::JIRA_ISSUE $(quote "${JIRA_ISSUE}") is not a Jira issue key such as PAK-1234"
-              exit 1
-            fi
-            # A caller forwarding an empty input of its own passes '', which
-            # does not trigger the input's default.
-            jira_base_url="$(trim "${JIRA_BASE_URL}")"
-            jira_base_url="${jira_base_url:-https://jira.fmi.fi}"
-            if ! [[ "${jira_base_url}" =~ ^https?://[^[:space:]\|\<\>\&]+$ ]]; then
-              echo "::error::JIRA_BASE_URL $(quote "${JIRA_BASE_URL}") is not a URL such as https://jira.fmi.fi"
               exit 1
             fi
             links+=("<${jira_base_url%/}/browse/${jira_issue}|${jira_issue}>")
@@ -248,7 +285,7 @@ jobs:
               path="${issue:$(( ${#GITHUB_SERVER_URL} + 1 ))}"
               path="${path%%#*}"
               path="${path%/}"
-              if [[ "${path}" =~ ^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)$ ]]; then
+              if [[ "${path}" =~ ^([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*)/issues/([1-9][0-9]*)$ ]]; then
                 repository="${BASH_REMATCH[1]}"
                 number="${BASH_REMATCH[2]}"
               fi
@@ -268,48 +305,27 @@ jobs:
             links+=("<${GITHUB_SERVER_URL}/${repository}/issues/${number}|${text}>")
           fi
 
-          if [ -n "${LEGACY_MESSAGE}" ]; then
-            if [ -n "${DISPLAY_NAME}${CHANGE_DESCRIPTION}${JIRA_ISSUE}${ISSUE}" ]; then
-              echo "::warning::SLACK_MESSAGE is set and is posted as it is, so APPLICATION_DISPLAY_NAME, CHANGE_DESCRIPTION, JIRA_ISSUE and GITHUB_ISSUE are not used"
-            fi
-            message="${LEGACY_MESSAGE}"
+          # An app's actor, such as 'github-actions[bot]', has its page under
+          # /apps/ rather than a profile.
+          if [[ "${ACTOR}" == *'[bot]' ]]; then
+            actor_url="${GITHUB_SERVER_URL}/apps/${ACTOR%'[bot]'}"
           else
-            # An app's actor, such as 'github-actions[bot]', has its page under
-            # /apps/ rather than a profile.
-            if [[ "${ACTOR}" == *'[bot]' ]]; then
-              actor_url="${GITHUB_SERVER_URL}/apps/${ACTOR%'[bot]'}"
-            else
-              actor_url="${GITHUB_SERVER_URL}/${ACTOR}"
-            fi
-            message="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}|$(escape "${name}") version $(escape "${APPLICATION_VERSION}")>"
-            message+=" to $(escape "${DEPLOY_ENVIRONMENTS}") by <${actor_url}|@${ACTOR}>"
-            # Line breaks and runs of whitespace collapse to single spaces, so
-            # the message stays one line.
-            description="$(printf '%s' "${CHANGE_DESCRIPTION}" | tr -s '[:space:]' ' ')"
-            description="$(trim "${description}")"
-            if [ -n "${description}" ]; then
-              message+=": $(escape "${description}")"
-            fi
-            if [ "${#links[@]}" -gt 0 ]; then
-              joined="${links[0]}"
-              for link in "${links[@]:1}"; do
-                joined+=", ${link}"
-              done
-              message+=" (${joined})"
-            fi
+            actor_url="${GITHUB_SERVER_URL}/${ACTOR}"
           fi
-
-          # Logged with workflow commands suspended, since a legacy message may
-          # contain a line starting with '::'.
-          token="end_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
-          echo "::stop-commands::${token}"
-          printf 'Slack message: %s\n' "${message}"
-          echo "::${token}::"
-
-          # The delimiter is random for the same reason: a legacy message may
-          # span several lines. Plain bash, so that the step runs on any runner.
-          delimiter="EOF_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
-          printf 'message<<%s\n%s\n%s\n' "${delimiter}" "${message}" "${delimiter}" >> "${GITHUB_OUTPUT}"
+          message="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}|$(escape "${name}") version $(escape "${APPLICATION_VERSION}")>"
+          message+=" to $(escape "$(one_line "${DEPLOY_ENVIRONMENTS}")") by <${actor_url}|@${ACTOR}>"
+          description="$(one_line "${CHANGE_DESCRIPTION}")"
+          if [ -n "${description}" ]; then
+            message+=": $(escape "${description}")"
+          fi
+          if [ "${#links[@]}" -gt 0 ]; then
+            joined="${links[0]}"
+            for link in "${links[@]:1}"; do
+              joined+=", ${link}"
+            done
+            message+=" (${joined})"
+          fi
+          publish "${message}"
 
   verify:
     name: Verify the version has been published
