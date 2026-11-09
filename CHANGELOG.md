@@ -34,10 +34,13 @@ loosely: while the major version is 0, a breaking change bumps the minor.
   A caller that sets `SLACK_MESSAGE` still gets that text verbatim; replace it
   with `APPLICATION_DISPLAY_NAME` to get the links.
 - Runners are pinned to `ubuntu-26.04`, generally available since September
-  2026, instead of `ubuntu-24.04`. The workflows use nothing from the runner
-  image beyond Docker, Buildx, yq and git, all of which it ships.
+  2026, instead of `ubuntu-24.04`. The workflows use Docker, Buildx, yq, git
+  and the usual shell utilities from the image, all of which it ships. Its
+  coreutils are the Rust uutils; the scripts here behave the same with them.
 - The default `HELM_VERSION` is 3.22.1, the latest Helm 3 patch release,
   instead of 3.22.0. A caller that sets `HELM_VERSION` is unaffected.
+- `docker/login-action` is v4.7.0. v4.8.0 is left for the seven-day
+  Dependabot cooldown.
 
 ## [0.4.0] — 2026-09-11
 
