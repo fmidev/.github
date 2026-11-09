@@ -235,25 +235,26 @@ jobs:
             exit 0
           fi
 
-          name="$(trim "${DISPLAY_NAME}")"
+          name="$(one_line "${DISPLAY_NAME}")"
           name="${name:-${APPLICATION_NAME}}"
-          # A '|' would end the link's URL part early, and a line break would
-          # split the message.
-          case "${name}" in
-            *'|'*|*$'\n'*|*$'\r'*)
-              echo "::error::APPLICATION_DISPLAY_NAME $(quote "${name}") must not contain '|' or line breaks"
-              exit 1
-              ;;
-          esac
+          # A '|' would end the link's URL part early.
+          if [[ "${name}" == *'|'* ]]; then
+            echo "::error::APPLICATION_DISPLAY_NAME $(quote "${DISPLAY_NAME}") must not contain '|'"
+            exit 1
+          fi
 
           # A caller forwarding an empty input of its own passes '', which does
           # not trigger the input's default. Checked whenever given, so that a
-          # wrong URL fails before the first issue is linked with it. '?', '#'
-          # and '\' would put /browse/<key> inside a query or a fragment.
+          # wrong URL fails before the first issue is linked with it. Only the
+          # ASCII characters a plain URL needs are allowed, which keeps the
+          # check independent of the locale; '?' and '#' are not among them,
+          # since they would put /browse/<key> inside a query or a fragment.
           jira_base_url="$(trim "${JIRA_BASE_URL}")"
           jira_base_url="${jira_base_url:-https://jira.fmi.fi}"
-          url_re='^https?://[^[:space:]|<>&?#\]+$'
-          if ! [[ "${jira_base_url,,}" =~ ${url_re} ]]; then
+          scheme="${jira_base_url%%://*}"
+          jira_base_url="${scheme,,}://${jira_base_url#*://}"
+          url_re='^https?://[A-Za-z0-9._~:/%@!$*+,;=()-]+$'
+          if ! [[ "${jira_base_url}" =~ ${url_re} ]]; then
             echo "::error::JIRA_BASE_URL $(quote "${JIRA_BASE_URL}") is not a URL such as https://jira.fmi.fi"
             exit 1
           fi
@@ -285,9 +286,12 @@ jobs:
               path="${issue:$(( ${#GITHUB_SERVER_URL} + 1 ))}"
               path="${path%%#*}"
               path="${path%/}"
-              if [[ "${path}" =~ ^([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*)/issues/([1-9][0-9]*)$ ]]; then
+              # Owners start with a letter or digit. Repository names may start
+              # with '.', as '.github' does, but cannot be '.' or '..'.
+              if [[ "${path}" =~ ^([A-Za-z0-9][A-Za-z0-9_.-]*/([A-Za-z0-9_.-]+))/issues/([1-9][0-9]*)$ ]] \
+                && [ "${BASH_REMATCH[2]}" != '.' ] && [ "${BASH_REMATCH[2]}" != '..' ]; then
                 repository="${BASH_REMATCH[1]}"
-                number="${BASH_REMATCH[2]}"
+                number="${BASH_REMATCH[3]}"
               fi
             fi
             if [ -z "${number}" ]; then
