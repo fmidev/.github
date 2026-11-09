@@ -54,11 +54,41 @@ on:
         default: 'v3.22.0'
         required: false
         type: string
+      APPLICATION_DISPLAY_NAME:
+        description: >-
+          Name of the application in the Slack message, when it is known by a
+          different name than APPLICATION_NAME. Defaults to APPLICATION_NAME.
+        default: ''
+        required: false
+        type: string
+      CHANGE_DESCRIPTION:
+        description: 'Free-form description of the change, for the Slack message'
+        default: ''
+        required: false
+        type: string
+      JIRA_ISSUE:
+        description: "Jira issue key of the change, e.g. 'PAK-1234', linked in the Slack message"
+        default: ''
+        required: false
+        type: string
+      JIRA_BASE_URL:
+        description: 'Base URL of the Jira instance the issue key is linked to'
+        default: 'https://jira.fmi.fi'
+        required: false
+        type: string
+      GITHUB_ISSUE:
+        description: >-
+          GitHub issue of the change, linked in the Slack message: an issue
+          number in the calling repository, e.g. '123', or the full URL of an
+          issue in any repository on this GitHub instance.
+        default: ''
+        required: false
+        type: string
       SLACK_MESSAGE:
         description: >-
-          Message to post once the promotion has succeeded. Defaults to
-          '<APPLICATION_NAME> version upgrade <APPLICATION_VERSION> to
-          <DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS>'. Posted only when the
+          Legacy: a message posted verbatim instead of the composed one, which
+          links the version, the person and the issues. Prefer
+          APPLICATION_DISPLAY_NAME and CHANGE_DESCRIPTION. Posted only when the
           SLACK_WEBHOOK_URL secret is available.
         default: ''
         required: false
@@ -119,6 +149,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       SLACK_ENABLED: ${{ steps.slack.outputs.enabled }}
+      SLACK_MESSAGE: ${{ steps.message.outputs.message }}
     env:
       # Passed through the environment rather than interpolated into the shell
       # commands below, so that a version typed into a 'workflow_dispatch' form
@@ -143,6 +174,107 @@ jobs:
             echo "::error::Version '${APPLICATION_VERSION}' is not SemVer without build metadata, which is what an image tag can carry"
             exit 1
           fi
+
+      # Composed before anything is looked up, so that a mistyped issue fails
+      # the promotion at once rather than after the registry checks. The
+      # message is a single line in Slack's own link syntax:
+      #
+      #   <release|name version 1.2.3> to <environments> by <profile|@login>:
+      #   <description> (<jira|PAK-1>, <issue|#2>)
+      #
+      # where the description and the parenthesised links are left out when
+      # not given. Slack does not render Markdown '[text](url)' links. The version links to the release page, which GitHub shows
+      # for a bare tag too, so no API call is needed.
+      - name: Compose the Slack message
+        id: message
+        env:
+          DISPLAY_NAME: '${{ inputs.APPLICATION_DISPLAY_NAME }}'
+          CHANGE_DESCRIPTION: '${{ inputs.CHANGE_DESCRIPTION }}'
+          JIRA_ISSUE: '${{ inputs.JIRA_ISSUE }}'
+          JIRA_BASE_URL: '${{ inputs.JIRA_BASE_URL }}'
+          GITHUB_ISSUE: '${{ inputs.GITHUB_ISSUE }}'
+          LEGACY_MESSAGE: '${{ inputs.SLACK_MESSAGE }}'
+          ACTOR: '${{ github.triggering_actor }}'
+        run: |
+          # Slack treats '&', '<' and '>' as control characters, so free text is
+          # escaped before it goes into the message. With sed rather than
+          # '${var//&/...}', where bash 5.2 reads '&' in the replacement as the
+          # matched text and older versions do not.
+          escape() {
+            printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+          }
+
+          name="${DISPLAY_NAME:-${APPLICATION_NAME}}"
+          # A '|' would end the link's URL part early, and a line break would
+          # split the message.
+          case "${name}" in
+            *'|'*|*$'\n'*|*$'\r'*)
+              echo "::error::APPLICATION_DISPLAY_NAME '${name}' must not contain '|' or line breaks"
+              exit 1
+              ;;
+          esac
+
+          links=()
+          if [ -n "${JIRA_ISSUE}" ]; then
+            if ! [[ "${JIRA_ISSUE}" =~ ^[A-Z][A-Z0-9_]+-[1-9][0-9]*$ ]]; then
+              echo "::error::JIRA_ISSUE '${JIRA_ISSUE}' is not a Jira issue key such as PAK-1234"
+              exit 1
+            fi
+            if ! [[ "${JIRA_BASE_URL}" =~ ^https?://[^[:space:]\|\<\>\&]+$ ]]; then
+              echo "::error::JIRA_BASE_URL '${JIRA_BASE_URL}' is not a URL such as https://jira.fmi.fi"
+              exit 1
+            fi
+            links+=("<${JIRA_BASE_URL%/}/browse/${JIRA_ISSUE}|${JIRA_ISSUE}>")
+          fi
+          if [ -n "${GITHUB_ISSUE}" ]; then
+            issue_re="^${GITHUB_SERVER_URL//./\\.}/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)$"
+            if [[ "${GITHUB_ISSUE}" =~ ^#?([1-9][0-9]*)$ ]]; then
+              links+=("<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/issues/${BASH_REMATCH[1]}|#${BASH_REMATCH[1]}>")
+            elif [[ "${GITHUB_ISSUE}" =~ ${issue_re} ]]; then
+              repository="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+              number="${BASH_REMATCH[3]}"
+              # GitHub's own convention: '#2' within a repository,
+              # 'owner/repo#2' across repositories.
+              if [ "${repository}" = "${GITHUB_REPOSITORY}" ]; then
+                text="#${number}"
+              else
+                text="${repository}#${number}"
+              fi
+              links+=("<${GITHUB_SERVER_URL}/${repository}/issues/${number}|${text}>")
+            else
+              echo "::error::GITHUB_ISSUE '${GITHUB_ISSUE}' is neither an issue number nor an issue URL on ${GITHUB_SERVER_URL}"
+              exit 1
+            fi
+          fi
+
+          if [ -n "${LEGACY_MESSAGE}" ]; then
+            message="${LEGACY_MESSAGE}"
+          else
+            message="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}|$(escape "${name}") version ${APPLICATION_VERSION}>"
+            message+=" to $(escape "${DEPLOY_ENVIRONMENTS}") by <${GITHUB_SERVER_URL}/${ACTOR}|@${ACTOR}>"
+            # Line breaks and runs of whitespace collapse to single spaces, so
+            # the message stays one line.
+            description="$(printf '%s' "${CHANGE_DESCRIPTION}" | tr -s '[:space:]' ' ')"
+            description="${description# }"
+            description="${description% }"
+            if [ -n "${description}" ]; then
+              message+=": $(escape "${description}")"
+            fi
+            if [ "${#links[@]}" -gt 0 ]; then
+              joined="${links[0]}"
+              for link in "${links[@]:1}"; do
+                joined+=", ${link}"
+              done
+              message+=" (${joined})"
+            fi
+          fi
+          echo "Slack message: ${message}"
+
+          # A delimiter the value will not contain, since a legacy message may
+          # still span several lines. Plain bash, so that the step runs on any
+          # runner.
+          delimiter="EOF_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
+          printf 'message<<%s\n%s\n%s\n' "${delimiter}" "${message}" "${delimiter}" >> "${GITHUB_OUTPUT}"
 
       - name: Registry login
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -240,6 +372,6 @@ jobs:
     if: ${{ needs.verify.outputs.SLACK_ENABLED == 'true' }}
     uses: fmidev/.github/.github/workflows/post-to-slack-deploy-automation-notifier.yaml@0.4.0
     with:
-      slack_message: ${{ inputs.SLACK_MESSAGE || format('{0} version upgrade {1} to {2}', inputs.APPLICATION_NAME, inputs.APPLICATION_VERSION, inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS) }}
+      slack_message: ${{ needs.verify.outputs.SLACK_MESSAGE }}
     secrets:
       SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'

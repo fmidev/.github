@@ -12,6 +12,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this repository uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 loosely: while the major version is 0, a breaking change bumps the minor.
 
+## [Unreleased]
+
+### Added
+
+- `openshift-promote` announces a promotion with who made it and what changed,
+  as FMI's change management guide asks of a #fmi-muutokset announcement
+  (PAK-10218). New optional inputs: `APPLICATION_DISPLAY_NAME`,
+  `CHANGE_DESCRIPTION`, `JIRA_ISSUE`, `JIRA_BASE_URL` (default
+  `https://jira.fmi.fi`) and `GITHUB_ISSUE`. An invalid Jira key or GitHub
+  issue fails the promotion before anything is looked up.
+
+### Changed
+
+- The default Slack message of `openshift-promote` is now a single line in
+  Slack's link syntax, linking the version's release page, the person who
+  started the run, and the Jira and GitHub issues when given:
+  `My App version 1.2.3 to production by @mmeikala: Adds the new radar layer (PAK-123, #45)`.
+  A caller that sets `SLACK_MESSAGE` still gets that text verbatim; replace it
+  with `APPLICATION_DISPLAY_NAME` to get the links.
+
 ## [0.4.0] — 2026-09-11
 
 **Breaking — the workflow files are now `.yaml`, not `.yml`.** Update the path
