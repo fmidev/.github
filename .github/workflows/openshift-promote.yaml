@@ -150,15 +150,17 @@ jobs:
   # back to a plain message should that happen anyway. 'verify' waits for this
   # job, so a mistyped issue fails the promotion before anything is looked up.
   #
-  # The message is a single line in Slack's own link syntax, since Slack does
-  # not render Markdown '[text](url)' links:
+  # The message is a single line of plain text with bare URLs:
   #
-  #   <release|name version 1.2.3> to <environments> by <profile|@login>:
-  #   <description> (<jira|PAK-1>, <issue|#2>)
+  #   name 1.2.3 to <environments> by <login>: <description> (<jira-url>,
+  #   <issue-url>, <release-url>)
   #
-  # The description and the parenthesised links are left out when not given.
-  # The version links to the release page, which GitHub shows for a bare tag
-  # too, so no API call is needed.
+  # The description, and the Jira and GitHub issue URLs, are left out when not
+  # given; the release URL is always there. The deploy automation notifier is
+  # a Slack Workflow Builder trigger, which shows its 'message' variable as
+  # plain text: link markup such as '<url|text>' would appear literally, while
+  # bare URLs are linked by Slack itself. For the same reason no Slack
+  # control character needs escaping.
   message:
     name: Compose the Slack message
     # Needs no GitHub token: it only reads its inputs.
@@ -203,13 +205,6 @@ jobs:
               | LC_ALL=C sed -e 's/\xe2\x80\xa8/ /g' -e 's/\xe2\x80\xa9/ /g' -e 's/\xc2\x85/ /g' -e 's/\xc2\xa0/ /g' \
               | tr -s '[:space:]' ' ')"
           }
-          # Slack treats '&', '<' and '>' as control characters, so free text is
-          # escaped before it goes into the message. With sed rather than
-          # '${var//&/...}', where bash 5.2 reads '&' in the replacement as the
-          # matched text and older versions do not.
-          escape() {
-            printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
-          }
           publish() {
             # Logged with workflow commands suspended, since a legacy message
             # may contain a line starting with '::'.
@@ -237,11 +232,6 @@ jobs:
 
           name="$(one_line "${DISPLAY_NAME}")"
           name="${name:-${APPLICATION_NAME}}"
-          # A '|' would end the link's URL part early.
-          if [[ "${name}" == *'|'* ]]; then
-            echo "::error::The application name $(quote "${name}") must not contain '|'; set APPLICATION_DISPLAY_NAME to one without"
-            exit 1
-          fi
 
           # A caller forwarding an empty input of its own passes '', which does
           # not trigger the input's default. Checked whenever given, so that a
@@ -271,7 +261,7 @@ jobs:
               echo "::error::JIRA_ISSUE $(quote "${JIRA_ISSUE}") is not a Jira issue key such as PAK-1234"
               exit 1
             fi
-            links+=("<${jira_base_url%/}/browse/${jira_issue}|${jira_issue}>")
+            links+=("${jira_base_url%/}/browse/${jira_issue}")
           fi
 
           issue="$(trim "${ISSUE}")"
@@ -300,37 +290,23 @@ jobs:
               echo "::error::GITHUB_ISSUE $(quote "${ISSUE}") is neither an issue number nor an issue URL on ${GITHUB_SERVER_URL}"
               exit 1
             fi
-            # GitHub's own convention: '#2' within a repository, 'owner/repo#2'
-            # across repositories. Owner and repository names are not case
-            # sensitive.
-            if [ "${repository,,}" = "${GITHUB_REPOSITORY,,}" ]; then
-              text="#${number}"
-            else
-              text="${repository}#${number}"
-            fi
-            links+=("<${GITHUB_SERVER_URL}/${repository}/issues/${number}|${text}>")
+            links+=("${GITHUB_SERVER_URL}/${repository}/issues/${number}")
           fi
 
-          # An app's actor, such as 'github-actions[bot]', has its page under
-          # /apps/ rather than a profile.
-          if [[ "${ACTOR}" == *'[bot]' ]]; then
-            actor_url="${GITHUB_SERVER_URL}/apps/${ACTOR%'[bot]'}"
-          else
-            actor_url="${GITHUB_SERVER_URL}/${ACTOR}"
-          fi
-          message="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}|$(escape "${name}") version $(escape "${APPLICATION_VERSION}")>"
-          message+=" to $(escape "$(one_line "${DEPLOY_ENVIRONMENTS}")") by <${actor_url}|@${ACTOR}>"
+          # The release page is always linked, last; GitHub shows it for a bare
+          # tag too.
+          links+=("${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}")
+
+          message="${name} ${APPLICATION_VERSION} to $(one_line "${DEPLOY_ENVIRONMENTS}") by ${ACTOR}"
           description="$(one_line "${CHANGE_DESCRIPTION}")"
           if [ -n "${description}" ]; then
-            message+=": $(escape "${description}")"
+            message+=": ${description}"
           fi
-          if [ "${#links[@]}" -gt 0 ]; then
-            joined="${links[0]}"
-            for link in "${links[@]:1}"; do
-              joined+=", ${link}"
-            done
-            message+=" (${joined})"
-          fi
+          joined="${links[0]}"
+          for link in "${links[@]:1}"; do
+            joined+=", ${link}"
+          done
+          message+=" (${joined})"
           publish "${message}"
 
   verify:
@@ -462,6 +438,6 @@ jobs:
     with:
       # Should the composed message have been dropped, a plain one without
       # links is posted rather than an empty one.
-      slack_message: ${{ needs.message.outputs.SLACK_MESSAGE || inputs.SLACK_MESSAGE || format('{0} version {1} to {2} by @{3}', inputs.APPLICATION_DISPLAY_NAME || inputs.APPLICATION_NAME, inputs.APPLICATION_VERSION, inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS, github.triggering_actor) }}
+      slack_message: ${{ needs.message.outputs.SLACK_MESSAGE || inputs.SLACK_MESSAGE || format('{0} {1} to {2} by {3} ({4}/{5}/releases/tag/{1})', inputs.APPLICATION_DISPLAY_NAME || inputs.APPLICATION_NAME, inputs.APPLICATION_VERSION, inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS, github.triggering_actor, github.server_url, github.repository) }}
     secrets:
       SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'
