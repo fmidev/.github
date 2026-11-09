@@ -28,7 +28,9 @@ called it, part-way through a deployment. `lint.yaml` is the only gate before
 that, and all three of its jobs must stay green:
 
 - **actionlint** for expressions that do not parse, unknown contexts, actions on
-  retired runners, and shellcheck findings in `run:` scripts.
+  retired runners, and shellcheck findings in `run:` scripts. The
+  `ubuntu-26.04` label is declared in `.github/actionlint.yaml` until an
+  actionlint release knows it.
 - **yamllint** `--strict`, configured in `.yamllint.yaml`, for the defects that
   change meaning: a duplicate key silently discarding a value, a tab, broken
   indentation.
@@ -54,12 +56,10 @@ Reusable workflows from this repository stay on their release tag, so that one
 tag describes the whole set. That exception is encoded as a policy in
 `.github/zizmor.yml` rather than left to reviewer memory.
 
-Runners are pinned to `ubuntu-24.04` rather than left on `ubuntu-latest`, so that
+Runners are pinned to `ubuntu-26.04` rather than left on `ubuntu-latest`, so that
 a GitHub-side image migration cannot change what repositories deploy with,
-without a commit here. `ubuntu-24.04` is the newest generally available image;
-`ubuntu-26.04` exists but is a public preview and is explicitly outside the
-Actions SLA, which is not a suitable base for a deployment pipeline. Revisit when
-it goes GA.
+without a commit here. `ubuntu-26.04` has been generally available since
+September 2026, and `ubuntu-latest` moves to it in November 2026.
 
 Helm is pinned to a 3.x release. Helm 4 is out, and the GitHub-hosted images
 already ship it, but the charts in the GitOps repository and the Argo CD instance

@@ -36,7 +36,7 @@ on:
         required: false
         type: string
       HELM_VERSION:
-        default: 'v3.22.0'
+        default: 'v3.22.1'
         required: false
         type: string
       HELM_CHART_KEY:
@@ -108,7 +108,7 @@ permissions:
 jobs:
   setup:
     name: Setup
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Validate SemVer
         env:

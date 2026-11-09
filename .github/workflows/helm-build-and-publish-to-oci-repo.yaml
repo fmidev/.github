@@ -19,7 +19,7 @@ on:
         description: >-
           Helm to install. Kept on 3.x deliberately: the charts in the GitOps
           repository and the Argo CD instance that reconciles them are Helm 3.
-        default: 'v3.22.0'
+        default: 'v3.22.1'
         required: false
         type: string
       IMAGE_REGISTRY:
@@ -42,7 +42,7 @@ permissions:
 jobs:
   build-and-publish:
     name: Helm build and publish
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

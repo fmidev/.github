@@ -33,6 +33,11 @@ loosely: while the major version is 0, a breaking change bumps the minor.
   `My App version 1.2.3 to production by @mmeikala: Adds the new radar layer (PAK-123, #45)`.
   A caller that sets `SLACK_MESSAGE` still gets that text verbatim; replace it
   with `APPLICATION_DISPLAY_NAME` to get the links.
+- Runners are pinned to `ubuntu-26.04`, generally available since September
+  2026, instead of `ubuntu-24.04`. The workflows use nothing from the runner
+  image beyond Docker, Buildx, yq and git, all of which it ships.
+- The default `HELM_VERSION` is 3.22.1, the latest Helm 3 patch release,
+  instead of 3.22.0. A caller that sets `HELM_VERSION` is unaffected.
 
 ## [0.4.0] — 2026-09-11
 
