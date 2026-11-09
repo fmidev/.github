@@ -105,42 +105,104 @@ on:
         description: 'Released version to deploy, e.g. 1.2.3'
         required: true
         type: string
+      description:
+        description: 'What changes, e.g. Adds the new radar layer'
+        required: false
+        type: string
+      jira:
+        description: 'Jira issue, e.g. PAK-1234'
+        required: false
+        type: string
+      issue:
+        description: 'GitHub issue number, or the URL of an issue in another repository'
+        required: false
+        type: string
 
 jobs:
   deploy:
-    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.4.0
+    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.5.0
     with:
       APPLICATION_NAME: 'my-app'
+      APPLICATION_DISPLAY_NAME: 'My App'
       APPLICATION_VERSION: ${{ inputs.version }}
       DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'tenant-id'
       DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: 'production'
-      SLACK_MESSAGE: 'My App version upgrade ${{ inputs.version }} to production'
+      CHANGE_DESCRIPTION: ${{ inputs.description }}
+      JIRA_ISSUE: ${{ inputs.jira }}
+      GITHUB_ISSUE: ${{ inputs.issue }}
     secrets: inherit
 ```
 
-The promotion runs in three stages:
+The promotion runs in four stages:
 
-1. **Verify.** The version is checked against the SemVer format, and the
+1. **Compose.** The Slack message is composed and its inputs checked, as
+   described below, so a mistyped issue fails before anything is looked up.
+2. **Verify.** The version is checked against the SemVer format, and the
    container image and the Helm chart for it must exist in the registry. The
    image is looked up first. A version that was never built fails here, before
    anything in GitOps has changed.
-2. **Update.** `update-openshift-application-version.yaml` rewrites the version
+3. **Update.** `update-openshift-application-version.yaml` rewrites the version
    references for every environment in
    `DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS`.
-3. **Announce.** When the `SLACK_WEBHOOK_URL` secret is available, the
+4. **Announce.** When the `SLACK_WEBHOOK_URL` secret is available, the
    promotion is posted to Slack through
    `post-to-slack-deploy-automation-notifier.yaml`. With no webhook the stage is
    skipped and the promotion still succeeds, so the secret is optional.
-
-`SLACK_MESSAGE` sets the text. It defaults to
-`<APPLICATION_NAME> version upgrade <APPLICATION_VERSION> to <DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS>`,
-which is worth overriding when the application is known by a different name than
-its repository.
 
 To require an approval before the promotion runs, put a job with an
 `environment:` in front of it in the calling workflow and configure required
 reviewers for that environment. A job that calls a reusable workflow cannot
 declare an `environment:` of its own.
+
+### The Slack message
+
+The change management guide asks for a change announced on #fmi-muutokset to
+say who makes it and what changes, and to link the Jira issue when there is
+one. The message is therefore a single line linking the version, the person who
+started the run, and the issues. In Slack it reads:
+
+> [My App version 1.2.3](https://github.com/fmidev/my-app/releases/tag/1.2.3) to production by [@mmeikala](https://github.com/mmeikala): Adds the new radar layer ([PAK-123](https://jira.fmi.fi/browse/PAK-123), [#45](https://github.com/fmidev/my-app/issues/45))
+
+It is sent in Slack's own link syntax, since Slack does not render Markdown
+links:
+
+```
+<https://github.com/fmidev/my-app/releases/tag/1.2.3|My App version 1.2.3> to production by <https://github.com/mmeikala|@mmeikala>: Adds the new radar layer (<https://jira.fmi.fi/browse/PAK-123|PAK-123>, <https://github.com/fmidev/my-app/issues/45|#45>)
+```
+
+- The name is `APPLICATION_DISPLAY_NAME`, or `APPLICATION_NAME` when not set.
+  Line breaks in it become spaces, and it must not contain `|`.
+- The version links to its release page, which GitHub also shows for a tag
+  without a release. The link assumes that the release is tagged in the
+  calling repository, with the bare version (`1.2.3`, not `v1.2.3`), as
+  `openshift-deploy.yaml` expects.
+- The person is whoever started the run; re-running failed jobs keeps them.
+  An app, such as `github-actions[bot]`, links to its app page.
+- `CHANGE_DESCRIPTION` follows a colon. Line breaks in it become spaces, and
+  `&`, `<` and `>` are escaped, so it cannot form links or mentions such as
+  `<!channel>`. Without it there is no colon.
+- `JIRA_ISSUE`, e.g. `PAK-123`, links to `JIRA_BASE_URL`, which defaults to
+  `https://jira.fmi.fi`, also when a caller passes it empty; it must be a
+  plain http(s) URL, without `?` or `#`. `GITHUB_ISSUE` is
+  an issue number in the calling repository (`45` or `#45`), or the URL of an
+  issue on this instance, shown as `#45` within the calling repository and as
+  `owner/repo#45` elsewhere. The parentheses are left out when neither is
+  given.
+
+Both issues are typically typed into a form, so surrounding whitespace, a
+lowercase Jira key, and a trailing `/` or `#issuecomment-…` on an issue URL are
+accepted. Anything else that is not a Jira key or a GitHub issue fails the
+promotion before anything has been looked up or changed.
+
+GitHub drops a job output that contains the value of a secret. The message is
+composed in a job that holds none, but should it be dropped anyway, a plain
+`<name> version <version> to <environments> by @<login>` is posted instead of
+an empty message.
+
+`SLACK_MESSAGE` is the earlier interface: when set, it is posted verbatim
+instead, with none of the links. The inputs above are then neither used nor
+validated; when any of them is given, a warning says they are unused. Use
+`APPLICATION_DISPLAY_NAME` instead.
 
 ## What the GitOps repository must look like
 
