@@ -159,36 +159,34 @@ declare an `environment:` of its own.
 
 The change management guide asks for a change announced on #fmi-muutokset to
 say who makes it and what changes, and to link the Jira issue when there is
-one. The message is therefore a single line linking the version, the person who
-started the run, and the issues. In Slack it reads:
-
-> [My App version 1.2.3](https://github.com/fmidev/my-app/releases/tag/1.2.3) to production by [@mmeikala](https://github.com/mmeikala): Adds the new radar layer ([PAK-123](https://jira.fmi.fi/browse/PAK-123), [#45](https://github.com/fmidev/my-app/issues/45))
-
-It is sent in Slack's own link syntax, since Slack does not render Markdown
-links:
+one. The message is therefore a single line naming the version, the person who
+started the run and the description, followed by the links:
 
 ```
-<https://github.com/fmidev/my-app/releases/tag/1.2.3|My App version 1.2.3> to production by <https://github.com/mmeikala|@mmeikala>: Adds the new radar layer (<https://jira.fmi.fi/browse/PAK-123|PAK-123>, <https://github.com/fmidev/my-app/issues/45|#45>)
+My App 1.2.3 to production by mmeikala: Adds the new radar layer (https://jira.fmi.fi/browse/PAK-123, https://github.com/fmidev/my-app/issues/45, https://github.com/fmidev/my-app/releases/tag/1.2.3)
 ```
+
+The links are bare URLs, which Slack links by itself. The deploy automation
+notifier is a Slack Workflow Builder trigger, and Workflow Builder shows the
+text it is given as it is: link markup such as `<url|text>` would appear
+literally, and so would a mention such as `<!channel>`.
 
 - The name is `APPLICATION_DISPLAY_NAME`, or `APPLICATION_NAME` when not set.
-  Line breaks in it become spaces, and it must not contain `|`.
-- The version links to its release page, which GitHub also shows for a tag
-  without a release. The link assumes that the release is tagged in the
-  calling repository, with the bare version (`1.2.3`, not `v1.2.3`), as
-  `openshift-deploy.yaml` expects.
-- The person is whoever started the run; re-running failed jobs keeps them.
-  An app, such as `github-actions[bot]`, links to its app page.
-- `CHANGE_DESCRIPTION` follows a colon. Line breaks in it become spaces, and
-  `&`, `<` and `>` are escaped, so it cannot form links or mentions such as
-  `<!channel>`. Without it there is no colon.
-- `JIRA_ISSUE`, e.g. `PAK-123`, links to `JIRA_BASE_URL`, which defaults to
-  `https://jira.fmi.fi`, also when a caller passes it empty; it must be a
-  plain http(s) URL, without `?` or `#`. `GITHUB_ISSUE` is
-  an issue number in the calling repository (`45` or `#45`), or the URL of an
-  issue on this instance, shown as `#45` within the calling repository and as
-  `owner/repo#45` elsewhere. The parentheses are left out when neither is
-  given.
+  Line breaks in it become spaces.
+- The person is the GitHub login of whoever started the run; re-running
+  failed jobs keeps them.
+- `CHANGE_DESCRIPTION` follows a colon, with line breaks turned into spaces.
+  Without it there is no colon.
+- In the parentheses, in this order:
+  - `JIRA_ISSUE`, e.g. `PAK-123`, under `JIRA_BASE_URL`, which defaults to
+    `https://jira.fmi.fi`, also when a caller passes it empty; it must be a
+    plain http(s) URL, without `?` or `#`. Left out when not given.
+  - `GITHUB_ISSUE`, an issue number in the calling repository (`45` or `#45`),
+    or the URL of an issue on this instance. Left out when not given.
+  - The release page of the version, always. GitHub shows it for a tag
+    without a release too. It assumes that the release is tagged in the
+    calling repository, with the bare version (`1.2.3`, not `v1.2.3`), as
+    `openshift-deploy.yaml` expects.
 
 Both issues are typically typed into a form, so surrounding whitespace, a
 lowercase Jira key, and a trailing `/` or `#issuecomment-…` on an issue URL are
@@ -196,14 +194,14 @@ accepted. Anything else that is not a Jira key or a GitHub issue fails the
 promotion before anything has been looked up or changed.
 
 GitHub drops a job output that contains the value of a secret. The message is
-composed in a job that holds none, but should it be dropped anyway, a plain
-`<name> version <version> to <environments> by @<login>` is posted instead of
-an empty message.
+composed in a job that holds none, but should it be dropped anyway, a shorter
+`<name> <version> to <environments> by <login> (<release URL>)` is posted
+instead of an empty message.
 
 `SLACK_MESSAGE` is the earlier interface: when set, it is posted verbatim
-instead, with none of the links. The inputs above are then neither used nor
-validated; when any of them is given, a warning says they are unused. Use
-`APPLICATION_DISPLAY_NAME` instead.
+instead. The inputs above are then neither used nor validated; when any of
+them is given, a warning says they are unused. Use `APPLICATION_DISPLAY_NAME`
+instead.
 
 ## What the GitOps repository must look like
 

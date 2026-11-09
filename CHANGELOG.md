@@ -27,12 +27,13 @@ loosely: while the major version is 0, a breaking change bumps the minor.
 
 ### Changed
 
-- The default Slack message of `openshift-promote` is now a single line in
-  Slack's link syntax, linking the version's release page, the person who
-  started the run, and the Jira and GitHub issues when given:
-  `My App version 1.2.3 to production by @mmeikala: Adds the new radar layer (PAK-123, #45)`.
-  A caller that sets `SLACK_MESSAGE` still gets that text verbatim; replace it
-  with `APPLICATION_DISPLAY_NAME` to get the links.
+- The default Slack message of `openshift-promote` is now a single line naming
+  the person who started the run, followed by bare URLs of the Jira and GitHub
+  issues when given and of the version's release page:
+  `My App 1.2.3 to production by mmeikala: Adds the new radar layer (https://jira.fmi.fi/browse/PAK-123, https://github.com/fmidev/my-app/issues/45, https://github.com/fmidev/my-app/releases/tag/1.2.3)`.
+  Bare URLs, because the Workflow Builder trigger behind the notifier shows
+  link markup literally. A caller that sets `SLACK_MESSAGE` still gets that
+  text verbatim; replace it with `APPLICATION_DISPLAY_NAME` to get the links.
 - Runners are pinned to `ubuntu-26.04`, generally available since September
   2026, instead of `ubuntu-24.04`. The workflows use Docker, Buildx, yq, git
   and the usual shell utilities from the image, all of which it ships. Its
