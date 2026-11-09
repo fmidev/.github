@@ -172,11 +172,11 @@ links:
 ```
 
 - The name is `APPLICATION_DISPLAY_NAME`, or `APPLICATION_NAME` when not set.
-  It must not contain `|` or line breaks.
+  Line breaks in it become spaces, and it must not contain `|`.
 - The version links to its release page, which GitHub also shows for a tag
-  without a release. The link assumes that the calling repository is the one
-  tagging the release, and with the bare version, `1.2.3` rather than
-  `v1.2.3`, as `openshift-deploy.yaml` expects.
+  without a release. The link assumes that the release is tagged in the
+  calling repository, with the bare version (`1.2.3`, not `v1.2.3`), as
+  `openshift-deploy.yaml` expects.
 - The person is whoever started the run; re-running failed jobs keeps them.
   An app, such as `github-actions[bot]`, links to its app page.
 - `CHANGE_DESCRIPTION` follows a colon. Line breaks in it become spaces, and
@@ -202,7 +202,8 @@ an empty message.
 
 `SLACK_MESSAGE` is the earlier interface: when set, it is posted verbatim
 instead, with none of the links. The inputs above are then neither used nor
-validated, and a warning says so. Use `APPLICATION_DISPLAY_NAME` instead.
+validated; when any of them is given, a warning says they are unused. Use
+`APPLICATION_DISPLAY_NAME` instead.
 
 ## What the GitOps repository must look like
 
