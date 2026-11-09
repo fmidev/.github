@@ -21,7 +21,9 @@ loosely: while the major version is 0, a breaking change bumps the minor.
   (PAK-10218). New optional inputs: `APPLICATION_DISPLAY_NAME`,
   `CHANGE_DESCRIPTION`, `JIRA_ISSUE`, `JIRA_BASE_URL` (default
   `https://jira.fmi.fi`) and `GITHUB_ISSUE`. An invalid Jira key or GitHub
-  issue fails the promotion before anything is looked up.
+  issue fails the promotion before anything is looked up. The message is
+  composed in a new `message` job that holds no secrets, so that the runner
+  cannot drop it for containing one.
 
 ### Changed
 

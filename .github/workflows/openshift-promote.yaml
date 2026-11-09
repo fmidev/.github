@@ -144,12 +144,179 @@ permissions:
   contents: read
 
 jobs:
+  # Composes the Slack message in a job of its own, which holds no secrets:
+  # the runner drops a job output containing the value of a secret it knows,
+  # and the message would then silently go out empty. 'notify' still falls
+  # back to a plain message should that happen anyway. 'verify' waits for this
+  # job, so a mistyped issue fails the promotion before anything is looked up.
+  #
+  # The message is a single line in Slack's own link syntax, since Slack does
+  # not render Markdown '[text](url)' links:
+  #
+  #   <release|name version 1.2.3> to <environments> by <profile|@login>:
+  #   <description> (<jira|PAK-1>, <issue|#2>)
+  #
+  # The description and the parenthesised links are left out when not given.
+  # The version links to the release page, which GitHub shows for a bare tag
+  # too, so no API call is needed.
+  message:
+    name: Compose the Slack message
+    # Needs no GitHub token: it only reads its inputs.
+    permissions: {}
+    runs-on: ubuntu-24.04
+    outputs:
+      SLACK_MESSAGE: ${{ steps.message.outputs.message }}
+    steps:
+      - name: Compose the Slack message
+        id: message
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script, so that a value typed into a 'workflow_dispatch' form
+          # cannot break out of it.
+          APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
+          APPLICATION_VERSION: '${{ inputs.APPLICATION_VERSION }}'
+          DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
+          DISPLAY_NAME: '${{ inputs.APPLICATION_DISPLAY_NAME }}'
+          CHANGE_DESCRIPTION: '${{ inputs.CHANGE_DESCRIPTION }}'
+          JIRA_ISSUE: '${{ inputs.JIRA_ISSUE }}'
+          JIRA_BASE_URL: '${{ inputs.JIRA_BASE_URL }}'
+          ISSUE: '${{ inputs.GITHUB_ISSUE }}'
+          LEGACY_MESSAGE: '${{ inputs.SLACK_MESSAGE }}'
+          ACTOR: '${{ github.triggering_actor }}'
+        run: |
+          # Values from the dispatch form are printed shell-quoted in errors, so
+          # that a line break in one cannot start a workflow command in the log.
+          quote() {
+            printf '%q' "$1"
+          }
+          trim() {
+            local s="$1"
+            s="${s#"${s%%[![:space:]]*}"}"
+            printf '%s' "${s%"${s##*[![:space:]]}"}"
+          }
+          # Slack treats '&', '<' and '>' as control characters, so free text is
+          # escaped before it goes into the message. With sed rather than
+          # '${var//&/...}', where bash 5.2 reads '&' in the replacement as the
+          # matched text and older versions do not.
+          escape() {
+            printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+          }
+
+          name="$(trim "${DISPLAY_NAME}")"
+          name="${name:-${APPLICATION_NAME}}"
+          # A '|' would end the link's URL part early, and a line break would
+          # split the message.
+          case "${name}" in
+            *'|'*|*$'\n'*|*$'\r'*)
+              echo "::error::APPLICATION_DISPLAY_NAME $(quote "${name}") must not contain '|' or line breaks"
+              exit 1
+              ;;
+          esac
+
+          links=()
+          # Typed into a form, so surrounding whitespace and a lowercase key are
+          # accepted.
+          jira_issue="$(trim "${JIRA_ISSUE}")"
+          jira_issue="${jira_issue^^}"
+          if [ -n "${jira_issue}" ]; then
+            if ! [[ "${jira_issue}" =~ ^[A-Z][A-Z0-9_]+-[1-9][0-9]*$ ]]; then
+              echo "::error::JIRA_ISSUE $(quote "${JIRA_ISSUE}") is not a Jira issue key such as PAK-1234"
+              exit 1
+            fi
+            # A caller forwarding an empty input of its own passes '', which
+            # does not trigger the input's default.
+            jira_base_url="$(trim "${JIRA_BASE_URL}")"
+            jira_base_url="${jira_base_url:-https://jira.fmi.fi}"
+            if ! [[ "${jira_base_url}" =~ ^https?://[^[:space:]\|\<\>\&]+$ ]]; then
+              echo "::error::JIRA_BASE_URL $(quote "${JIRA_BASE_URL}") is not a URL such as https://jira.fmi.fi"
+              exit 1
+            fi
+            links+=("<${jira_base_url%/}/browse/${jira_issue}|${jira_issue}>")
+          fi
+
+          issue="$(trim "${ISSUE}")"
+          if [ -n "${issue}" ]; then
+            repository=''
+            number=''
+            if [[ "${issue}" =~ ^#?([1-9][0-9]*)$ ]]; then
+              repository="${GITHUB_REPOSITORY}"
+              number="${BASH_REMATCH[1]}"
+            elif [[ "${issue,,}" == "${GITHUB_SERVER_URL,,}/"* ]]; then
+              # The server prefix is cut off rather than matched in a regex
+              # built from it, which would need its '.' escaped. A trailing '/'
+              # or '#comment' anchor, as copied from a browser, is dropped.
+              path="${issue:$(( ${#GITHUB_SERVER_URL} + 1 ))}"
+              path="${path%%#*}"
+              path="${path%/}"
+              if [[ "${path}" =~ ^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)$ ]]; then
+                repository="${BASH_REMATCH[1]}"
+                number="${BASH_REMATCH[2]}"
+              fi
+            fi
+            if [ -z "${number}" ]; then
+              echo "::error::GITHUB_ISSUE $(quote "${ISSUE}") is neither an issue number nor an issue URL on ${GITHUB_SERVER_URL}"
+              exit 1
+            fi
+            # GitHub's own convention: '#2' within a repository, 'owner/repo#2'
+            # across repositories. Owner and repository names are not case
+            # sensitive.
+            if [ "${repository,,}" = "${GITHUB_REPOSITORY,,}" ]; then
+              text="#${number}"
+            else
+              text="${repository}#${number}"
+            fi
+            links+=("<${GITHUB_SERVER_URL}/${repository}/issues/${number}|${text}>")
+          fi
+
+          if [ -n "${LEGACY_MESSAGE}" ]; then
+            if [ -n "${DISPLAY_NAME}${CHANGE_DESCRIPTION}${JIRA_ISSUE}${ISSUE}" ]; then
+              echo "::warning::SLACK_MESSAGE is set and is posted as it is, so APPLICATION_DISPLAY_NAME, CHANGE_DESCRIPTION, JIRA_ISSUE and GITHUB_ISSUE are not used"
+            fi
+            message="${LEGACY_MESSAGE}"
+          else
+            # An app's actor, such as 'github-actions[bot]', has its page under
+            # /apps/ rather than a profile.
+            if [[ "${ACTOR}" == *'[bot]' ]]; then
+              actor_url="${GITHUB_SERVER_URL}/apps/${ACTOR%'[bot]'}"
+            else
+              actor_url="${GITHUB_SERVER_URL}/${ACTOR}"
+            fi
+            message="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}|$(escape "${name}") version $(escape "${APPLICATION_VERSION}")>"
+            message+=" to $(escape "${DEPLOY_ENVIRONMENTS}") by <${actor_url}|@${ACTOR}>"
+            # Line breaks and runs of whitespace collapse to single spaces, so
+            # the message stays one line.
+            description="$(printf '%s' "${CHANGE_DESCRIPTION}" | tr -s '[:space:]' ' ')"
+            description="$(trim "${description}")"
+            if [ -n "${description}" ]; then
+              message+=": $(escape "${description}")"
+            fi
+            if [ "${#links[@]}" -gt 0 ]; then
+              joined="${links[0]}"
+              for link in "${links[@]:1}"; do
+                joined+=", ${link}"
+              done
+              message+=" (${joined})"
+            fi
+          fi
+
+          # Logged with workflow commands suspended, since a legacy message may
+          # contain a line starting with '::'.
+          token="end_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
+          echo "::stop-commands::${token}"
+          printf 'Slack message: %s\n' "${message}"
+          echo "::${token}::"
+
+          # The delimiter is random for the same reason: a legacy message may
+          # span several lines. Plain bash, so that the step runs on any runner.
+          delimiter="EOF_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
+          printf 'message<<%s\n%s\n%s\n' "${delimiter}" "${message}" "${delimiter}" >> "${GITHUB_OUTPUT}"
+
   verify:
     name: Verify the version has been published
+    needs: message
     runs-on: ubuntu-24.04
     outputs:
       SLACK_ENABLED: ${{ steps.slack.outputs.enabled }}
-      SLACK_MESSAGE: ${{ steps.message.outputs.message }}
     env:
       # Passed through the environment rather than interpolated into the shell
       # commands below, so that a version typed into a 'workflow_dispatch' form
@@ -174,107 +341,6 @@ jobs:
             echo "::error::Version '${APPLICATION_VERSION}' is not SemVer without build metadata, which is what an image tag can carry"
             exit 1
           fi
-
-      # Composed before anything is looked up, so that a mistyped issue fails
-      # the promotion at once rather than after the registry checks. The
-      # message is a single line in Slack's own link syntax:
-      #
-      #   <release|name version 1.2.3> to <environments> by <profile|@login>:
-      #   <description> (<jira|PAK-1>, <issue|#2>)
-      #
-      # where the description and the parenthesised links are left out when
-      # not given. Slack does not render Markdown '[text](url)' links. The version links to the release page, which GitHub shows
-      # for a bare tag too, so no API call is needed.
-      - name: Compose the Slack message
-        id: message
-        env:
-          DISPLAY_NAME: '${{ inputs.APPLICATION_DISPLAY_NAME }}'
-          CHANGE_DESCRIPTION: '${{ inputs.CHANGE_DESCRIPTION }}'
-          JIRA_ISSUE: '${{ inputs.JIRA_ISSUE }}'
-          JIRA_BASE_URL: '${{ inputs.JIRA_BASE_URL }}'
-          GITHUB_ISSUE: '${{ inputs.GITHUB_ISSUE }}'
-          LEGACY_MESSAGE: '${{ inputs.SLACK_MESSAGE }}'
-          ACTOR: '${{ github.triggering_actor }}'
-        run: |
-          # Slack treats '&', '<' and '>' as control characters, so free text is
-          # escaped before it goes into the message. With sed rather than
-          # '${var//&/...}', where bash 5.2 reads '&' in the replacement as the
-          # matched text and older versions do not.
-          escape() {
-            printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
-          }
-
-          name="${DISPLAY_NAME:-${APPLICATION_NAME}}"
-          # A '|' would end the link's URL part early, and a line break would
-          # split the message.
-          case "${name}" in
-            *'|'*|*$'\n'*|*$'\r'*)
-              echo "::error::APPLICATION_DISPLAY_NAME '${name}' must not contain '|' or line breaks"
-              exit 1
-              ;;
-          esac
-
-          links=()
-          if [ -n "${JIRA_ISSUE}" ]; then
-            if ! [[ "${JIRA_ISSUE}" =~ ^[A-Z][A-Z0-9_]+-[1-9][0-9]*$ ]]; then
-              echo "::error::JIRA_ISSUE '${JIRA_ISSUE}' is not a Jira issue key such as PAK-1234"
-              exit 1
-            fi
-            if ! [[ "${JIRA_BASE_URL}" =~ ^https?://[^[:space:]\|\<\>\&]+$ ]]; then
-              echo "::error::JIRA_BASE_URL '${JIRA_BASE_URL}' is not a URL such as https://jira.fmi.fi"
-              exit 1
-            fi
-            links+=("<${JIRA_BASE_URL%/}/browse/${JIRA_ISSUE}|${JIRA_ISSUE}>")
-          fi
-          if [ -n "${GITHUB_ISSUE}" ]; then
-            issue_re="^${GITHUB_SERVER_URL//./\\.}/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)$"
-            if [[ "${GITHUB_ISSUE}" =~ ^#?([1-9][0-9]*)$ ]]; then
-              links+=("<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/issues/${BASH_REMATCH[1]}|#${BASH_REMATCH[1]}>")
-            elif [[ "${GITHUB_ISSUE}" =~ ${issue_re} ]]; then
-              repository="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
-              number="${BASH_REMATCH[3]}"
-              # GitHub's own convention: '#2' within a repository,
-              # 'owner/repo#2' across repositories.
-              if [ "${repository}" = "${GITHUB_REPOSITORY}" ]; then
-                text="#${number}"
-              else
-                text="${repository}#${number}"
-              fi
-              links+=("<${GITHUB_SERVER_URL}/${repository}/issues/${number}|${text}>")
-            else
-              echo "::error::GITHUB_ISSUE '${GITHUB_ISSUE}' is neither an issue number nor an issue URL on ${GITHUB_SERVER_URL}"
-              exit 1
-            fi
-          fi
-
-          if [ -n "${LEGACY_MESSAGE}" ]; then
-            message="${LEGACY_MESSAGE}"
-          else
-            message="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${APPLICATION_VERSION}|$(escape "${name}") version ${APPLICATION_VERSION}>"
-            message+=" to $(escape "${DEPLOY_ENVIRONMENTS}") by <${GITHUB_SERVER_URL}/${ACTOR}|@${ACTOR}>"
-            # Line breaks and runs of whitespace collapse to single spaces, so
-            # the message stays one line.
-            description="$(printf '%s' "${CHANGE_DESCRIPTION}" | tr -s '[:space:]' ' ')"
-            description="${description# }"
-            description="${description% }"
-            if [ -n "${description}" ]; then
-              message+=": $(escape "${description}")"
-            fi
-            if [ "${#links[@]}" -gt 0 ]; then
-              joined="${links[0]}"
-              for link in "${links[@]:1}"; do
-                joined+=", ${link}"
-              done
-              message+=" (${joined})"
-            fi
-          fi
-          echo "Slack message: ${message}"
-
-          # A delimiter the value will not contain, since a legacy message may
-          # still span several lines. Plain bash, so that the step runs on any
-          # runner.
-          delimiter="EOF_${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
-          printf 'message<<%s\n%s\n%s\n' "${delimiter}" "${message}" "${delimiter}" >> "${GITHUB_OUTPUT}"
 
       - name: Registry login
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -366,12 +432,14 @@ jobs:
 
   notify:
     name: Announce in Slack
-    needs: [verify, update-openshift-app-version]
+    needs: [message, verify, update-openshift-app-version]
     # Only announce a promotion that actually landed, and only when a webhook
     # was passed in.
     if: ${{ needs.verify.outputs.SLACK_ENABLED == 'true' }}
     uses: fmidev/.github/.github/workflows/post-to-slack-deploy-automation-notifier.yaml@0.4.0
     with:
-      slack_message: ${{ needs.verify.outputs.SLACK_MESSAGE }}
+      # Should the composed message have been dropped, a plain one without
+      # links is posted rather than an empty one.
+      slack_message: ${{ needs.message.outputs.SLACK_MESSAGE || inputs.SLACK_MESSAGE || format('{0} version {1} to {2} by @{3}', inputs.APPLICATION_DISPLAY_NAME || inputs.APPLICATION_NAME, inputs.APPLICATION_VERSION, inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS, github.triggering_actor) }}
     secrets:
       SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL }}'

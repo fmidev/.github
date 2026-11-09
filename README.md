@@ -171,22 +171,34 @@ links:
 - The name is `APPLICATION_DISPLAY_NAME`, or `APPLICATION_NAME` when not set.
   It must not contain `|` or line breaks.
 - The version links to its release page, which GitHub also shows for a tag
-  without a release.
-- The person is whoever started the run, or re-ran it.
+  without a release. The link assumes the repository tags its releases with
+  the bare version, `1.2.3` rather than `v1.2.3`, as `openshift-deploy.yaml`
+  expects.
+- The person is whoever started the run, or re-ran it. An app, such as
+  `github-actions[bot]`, links to its app page.
 - `CHANGE_DESCRIPTION` follows a colon. Line breaks in it become spaces, and
   `&`, `<` and `>` are escaped, so it cannot form links or mentions such as
   `<!channel>`. Without it there is no colon.
 - `JIRA_ISSUE`, e.g. `PAK-123`, links to `JIRA_BASE_URL`, which defaults to
-  `https://jira.fmi.fi`. `GITHUB_ISSUE` is an issue number in the calling
-  repository (`45` or `#45`), or the full URL of an issue in another repository
-  on this instance, shown as `owner/repo#45`. The parentheses are left out when
-  neither is given.
+  `https://jira.fmi.fi`, also when a caller passes it empty. `GITHUB_ISSUE` is
+  an issue number in the calling repository (`45` or `#45`), or the URL of an
+  issue on this instance, shown as `#45` within the calling repository and as
+  `owner/repo#45` elsewhere. The parentheses are left out when neither is
+  given.
 
-An invalid Jira key or GitHub issue fails the promotion before anything has been
-looked up or changed.
+Both issues are typically typed into a form, so surrounding whitespace, a
+lowercase Jira key, and a trailing `/` or `#issuecomment-…` on an issue URL are
+accepted. Anything else that is not a Jira key or a GitHub issue fails the
+promotion before anything has been looked up or changed.
+
+GitHub drops a job output that contains the value of a secret. The message is
+composed in a job that holds none, but should it be dropped anyway, a plain
+`<name> version <version> to <environments> by @<login>` is posted instead of
+an empty message.
 
 `SLACK_MESSAGE` is the earlier interface: when set, it is posted verbatim
-instead, with none of the links. Use `APPLICATION_DISPLAY_NAME` instead.
+instead, with none of the links, and a warning notes that the inputs above go
+unused. Use `APPLICATION_DISPLAY_NAME` instead.
 
 ## What the GitOps repository must look like
 
