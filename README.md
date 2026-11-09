@@ -120,7 +120,7 @@ on:
 
 jobs:
   deploy:
-    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.4.1
+    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.5.0
     with:
       APPLICATION_NAME: 'my-app'
       APPLICATION_DISPLAY_NAME: 'My App'
