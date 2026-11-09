@@ -239,7 +239,7 @@ jobs:
           name="${name:-${APPLICATION_NAME}}"
           # A '|' would end the link's URL part early.
           if [[ "${name}" == *'|'* ]]; then
-            echo "::error::APPLICATION_DISPLAY_NAME $(quote "${DISPLAY_NAME}") must not contain '|'"
+            echo "::error::The application name $(quote "${name}") must not contain '|'; set APPLICATION_DISPLAY_NAME to one without"
             exit 1
           fi
 
@@ -251,8 +251,10 @@ jobs:
           # since they would put /browse/<key> inside a query or a fragment.
           jira_base_url="$(trim "${JIRA_BASE_URL}")"
           jira_base_url="${jira_base_url:-https://jira.fmi.fi}"
-          scheme="${jira_base_url%%://*}"
-          jira_base_url="${scheme,,}://${jira_base_url#*://}"
+          if [[ "${jira_base_url}" == *://* ]]; then
+            scheme="${jira_base_url%%://*}"
+            jira_base_url="${scheme,,}://${jira_base_url#*://}"
+          fi
           url_re='^https?://[A-Za-z0-9._~:/%@!$*+,;=()-]+$'
           if ! [[ "${jira_base_url}" =~ ${url_re} ]]; then
             echo "::error::JIRA_BASE_URL $(quote "${JIRA_BASE_URL}") is not a URL such as https://jira.fmi.fi"
