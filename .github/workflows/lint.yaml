@@ -28,7 +28,7 @@ jobs:
 
   workflows:
     name: Workflows
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout
@@ -53,7 +53,7 @@ jobs:
 
   yaml:
     name: YAML
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout
@@ -76,7 +76,7 @@ jobs:
 
   security:
     name: Security
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout

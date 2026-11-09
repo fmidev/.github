@@ -81,7 +81,7 @@ permissions:
 jobs:
   update-versions:
     name: Update Versions
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       # 'persist-credentials: true' is required here, unlike everywhere else in
       # this repository: the deploy key has to stay in the local git config for
