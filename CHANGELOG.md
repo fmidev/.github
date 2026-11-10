@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this repository uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 loosely: while the major version is 0, a breaking change bumps the minor.
 
-## [Unreleased]
+## [0.6.0] — 2026-11-10
 
 ### Added
 

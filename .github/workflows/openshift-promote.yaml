@@ -414,7 +414,7 @@ jobs:
   update-openshift-app-version:
     name: Update version in OpenShift GitOps
     needs: verify
-    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.5.1
+    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.6.0
     with:
       APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
       APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
@@ -435,7 +435,7 @@ jobs:
     # Only announce a promotion that actually landed, and only when a webhook
     # was passed in.
     if: ${{ needs.verify.outputs.SLACK_ENABLED == 'true' }}
-    uses: fmidev/.github/.github/workflows/post-to-slack-deploy-automation-notifier.yaml@0.5.1
+    uses: fmidev/.github/.github/workflows/post-to-slack-deploy-automation-notifier.yaml@0.6.0
     with:
       # Should the composed message have been dropped, a plain one without
       # links is posted rather than an empty one.
