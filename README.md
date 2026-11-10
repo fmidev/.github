@@ -12,6 +12,7 @@ Shared reusable workflows for the `fmidev` organisation on github.com.
 | `helm-build-and-publish-to-oci-repo.yaml` | Package a Helm chart and push it to the OCI registry. |
 | `helm-build-and-publish-to-github.yaml` | Package a Helm chart and commit it to the git-based chart repository. |
 | `update-openshift-application-version.yaml` | Rewrite the version references in the OpenShift GitOps repository. |
+| `update-openshift-image-tag.yaml` | Set the tag of one image in a shared `values.yaml` of the OpenShift GitOps repository, e.g. jobs in `pak-cronjobs`. |
 | `post-to-slack-deploy-automation-notifier.yaml` | Post a plain text message to the deploy automation Slack channel. |
 
 `lint.yaml` is the exception: it is this repository's own CI and is not meant to
@@ -229,6 +230,45 @@ once race on the push. A rejected push is rebased and retried rather than
 failing the deployment. Concurrency groups cannot solve this — they are scoped to
 the repository that calls the workflow, and the racing runs are in different
 repositories.
+
+## Deploying into a shared values file
+
+Applications that are entries in a shared chart, such as CronJobs in
+`pak/pak-cronjobs` (chart `fmi-cronjobs`), have no Chart.yaml of their own for
+`update-openshift-application-version.yaml` to rewrite. Build the image with
+`docker-build-and-push.yaml` and set its tag with
+`update-openshift-image-tag.yaml`:
+
+```yaml
+jobs:
+  image:
+    uses: fmidev/.github/.github/workflows/docker-build-and-push.yaml@<version>
+    with:
+      IMAGE_NAME: 'my-job'
+      IMAGE_TAG: ${{ github.ref_name }}
+    secrets: inherit
+
+  deploy:
+    needs: image
+    uses: fmidev/.github/.github/workflows/update-openshift-image-tag.yaml@<version>
+    with:
+      APPLICATION_NAME: 'pak-cronjobs'
+      IMAGE_NAME: 'my-job'
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'pak'
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS: 'development'
+    secrets: inherit
+```
+
+For every environment it expects
+`<DEPLOY_CONFIG_REPOSITORY_BASE_PATH>/<APPLICATION_NAME>/<environment>/values.yaml`
+and rewrites the `tag:` next to every `repository:
+<IMAGE_REGISTRY>/<IMAGE_REGISTRY_NAMESPACE>/<IMAGE_NAME>`, in either order and
+also in list items. The file is shared with other applications, so it is edited
+as text rather than with `yq -i`, which would reformat their entries; only the
+tag values change, keeping their quotes and trailing comments. The job fails
+when an environment's file does not use the image at all, when a matching entry
+has no `tag:`, or when `yq` and `git diff` disagree with the edit afterwards.
+A rejected push is rebased and retried, as in the other workflows.
 
 ## Upgrading a caller
 

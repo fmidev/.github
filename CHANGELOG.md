@@ -12,6 +12,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this repository uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 loosely: while the major version is 0, a breaking change bumps the minor.
 
+## [Unreleased]
+
+### Added
+
+- `update-openshift-image-tag`: sets the tag of one container image wherever
+  a `values.yaml` in the GitOps repository uses it, for applications that are
+  entries in a shared chart rather than charts of their own (e.g. jobs in
+  `pak/pak-cronjobs`, chart `fmi-cronjobs`). Edits only the matching `tag:`
+  values, keeping quoting and comments, so other teams' entries in the same
+  file stay byte for byte as they were; the result is cross-checked with `yq`
+  and `git diff`. Fails when the image is not used in a file, or an entry has
+  no `tag:`.
+
 ## [0.5.1] — 2026-11-10
 
 ### Changed
