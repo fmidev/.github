@@ -1,0 +1,266 @@
+name: Update image tag in OpenShift GitOps
+
+# Sets the tag of one container image wherever it is used in a values.yaml of
+# the OpenShift GitOps repository, which Argo CD then reconciles onto the
+# cluster. Nothing here builds or pushes anything, and nothing here talks to a
+# cluster.
+#
+# The counterpart of 'update-openshift-application-version.yaml' for
+# applications that do not ship their own Helm chart, but are entries in a
+# shared one: typically jobs in a 'fmi-cronjobs' values file that several
+# repositories deploy into, such as pak/pak-cronjobs.
+#
+# For every environment in DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS it expects
+#
+#   <base path>/<application name>/<environment>/values.yaml
+#
+# and rewrites the 'tag:' of every mapping whose 'repository:' is
+# <registry>/<namespace>/<image name>, for example
+#
+#   image:
+#     repository: quay.io/fmi/my-job
+#     tag: 1.2.2          ->  1.2.3
+#
+# The file is shared, so it is edited as text rather than with 'yq -i', which
+# would reformat everyone else's entries: only the tag values change, with
+# their quoting and trailing comments. The result is then checked with yq.
+
+on:
+  workflow_call:
+    inputs:
+      APPLICATION_NAME:
+        description: >-
+          Directory looked up under DEPLOY_CONFIG_REPOSITORY_BASE_PATH in the
+          GitOps repository, e.g. 'pak-cronjobs'. Usually not the repository
+          name: the directory is shared with other applications.
+        required: true
+        type: string
+      IMAGE_NAME:
+        default: '${{ github.event.repository.name }}'
+        required: false
+        type: string
+      IMAGE_TAG:
+        description: 'Tag to set. Defaults to the triggering ref, e.g. the pushed tag 1.2.3.'
+        default: '${{ github.ref_name }}'
+        required: false
+        type: string
+      IMAGE_TAG_PREFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_TAG_SUFFIX:
+        default: ''
+        required: false
+        type: string
+      IMAGE_REGISTRY:
+        default: 'quay.io'
+        required: false
+        type: string
+      IMAGE_REGISTRY_NAMESPACE:
+        default: 'fmi'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY:
+        default: 'fmidev/openshift-apps-gitops'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_SERVER_URL:
+        default: 'https://github.com'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BRANCH:
+        description: 'Branch of the GitOps repository to commit to; one that Argo CD reconciles.'
+        default: 'main'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_BASE_PATH:
+        default: '.'
+        required: false
+        type: string
+      DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS:
+        description: 'Comma-separated environments to update, e.g. development'
+        default: 'development'
+        required: false
+        type: string
+    secrets:
+      DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-image-tag:
+    name: Update image tag
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Check out GitOps
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+          github-server-url: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_SERVER_URL }}'
+          ref: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BRANCH }}'
+          ssh-key: '${{ secrets.DEPLOY_CONFIG_REPOSITORY_SSH_PRIVATE_KEY }}'
+          persist-credentials: true
+
+      - name: Update image tag
+        env:
+          APPLICATION_NAME: '${{ inputs.APPLICATION_NAME }}'
+          IMAGE: '${{ inputs.IMAGE_REGISTRY }}/${{ inputs.IMAGE_REGISTRY_NAMESPACE }}/${{ inputs.IMAGE_NAME }}'
+          IMAGE_TAG: '${{ inputs.IMAGE_TAG_PREFIX }}${{ inputs.IMAGE_TAG }}${{ inputs.IMAGE_TAG_SUFFIX }}'
+          BASE_PATH: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_BASE_PATH }}'
+          DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
+          DEPLOY_CONFIG_REPOSITORY: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+        run: |
+          # Same rules as the registry, checked here because the value is also
+          # written into YAML: anything outside them could change its meaning.
+          invalid=''
+          [ -z "${IMAGE_TAG}" ] && invalid='it is empty'
+          [ "${#IMAGE_TAG}" -gt 128 ] && invalid='it is longer than 128 characters'
+          case "${IMAGE_TAG}" in
+            [!A-Za-z0-9_]*) invalid='it must start with a letter, a digit or an underscore' ;;
+            *[!A-Za-z0-9._-]*) invalid='it may only contain letters, digits and . _ -' ;;
+          esac
+          if [ -n "${invalid}" ]; then
+            echo "::error::'${IMAGE_TAG}' is not a valid container image tag: ${invalid}"
+            exit 1
+          fi
+
+          if [ -z "${DEPLOY_ENVIRONMENTS}" ]; then
+            echo "::error::DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS is empty, there is nothing to deploy to"
+            exit 1
+          fi
+          read -ra environments <<< "${DEPLOY_ENVIRONMENTS//,/ }"
+
+          # Rewrites the 'tag:' sibling of every 'repository: <IMAGE>' key, in
+          # either order and also when the mapping is a list item ('- tag:').
+          # Prints the number of rewritten tags; exits 2 when a matching
+          # repository has no tag next to it.
+          # shellcheck disable=SC2016
+          rewrite='
+            function keycol(s, k) {
+              if (match(s, "^ *(- )?" k ":( |$)") == 0) return -1
+              match(s, "^ *(- )?"); return RLENGTH
+            }
+            function value(s) {
+              sub(/^ *(- )?[A-Za-z_]+: */, "", s)
+              sub(/ +#.*$/, "", s); sub(/ +$/, "", s)
+              if (s ~ /^".*"$/ || s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
+              return s
+            }
+            function skip(s) { return s ~ /^ *$/ || s ~ /^ *#/ }
+            function indent(s) { match(s, /^ */); return RLENGTH }
+            { line[NR] = $0 }
+            END {
+              count = 0
+              for (i = 1; i <= NR; i++) {
+                col = keycol(line[i], "repository")
+                if (col < 0 || value(line[i]) != image) continue
+                # Siblings share the key column; the mapping ends at a line
+                # indented less, or at the next item of the same list.
+                first = i; last = i
+                if (line[i] !~ /^ *- /)
+                  for (j = i - 1; j >= 1; j--) {
+                    if (skip(line[j])) continue
+                    if (indent(line[j]) > col) continue
+                    if (indent(line[j]) == col - 2 && line[j] ~ /^ *- /) { first = j; break }
+                    if (indent(line[j]) == col && line[j] !~ /^ *- /) { first = j; continue }
+                    break
+                  }
+                for (j = i + 1; j <= NR; j++) {
+                  if (skip(line[j])) continue
+                  if (indent(line[j]) > col) continue
+                  if (indent(line[j]) == col && line[j] !~ /^ *- /) { last = j; continue }
+                  break
+                }
+                t = 0
+                for (j = first; j <= last; j++)
+                  if (keycol(line[j], "tag") == col) { t = j; break }
+                if (!t) { printf "%s:%d: repository %s has no tag next to it\n", FILENAME, i, image > "/dev/stderr"; exit 2 }
+                s = line[t]
+                match(s, /^ *(- )?tag: */); head = substr(s, 1, RLENGTH); rest = substr(s, RLENGTH + 1)
+                comment = ""
+                if (match(rest, / +#.*$/)) { comment = substr(rest, RSTART); rest = substr(rest, 1, RSTART - 1) }
+                q = substr(rest, 1, 1); if (q != "\"" && q != "\047") q = ""
+                line[t] = head q tag q comment
+                count++
+              }
+              for (i = 1; i <= NR; i++) print line[i] > out
+              print count
+            }'
+
+          total=0
+          for environment in "${environments[@]}"; do
+            values="${BASE_PATH}/${APPLICATION_NAME}/${environment}/values.yaml"
+            if [ ! -f "${values}" ]; then
+              echo "::error::No '${values}' in ${DEPLOY_CONFIG_REPOSITORY}. Is the environment name correct?"
+              exit 1
+            fi
+
+            count="$(awk -v image="${IMAGE}" -v tag="${IMAGE_TAG}" -v out="${values}.new" "${rewrite}" "${values}")" || {
+              echo "::error file=${values}::A '${IMAGE}' entry has no 'tag:' to update"
+              exit 1
+            }
+            if [ "${count}" -eq 0 ]; then
+              rm -f "${values}.new"
+              echo "::error::'${values}' uses no '${IMAGE}' image; nothing would be deployed"
+              exit 1
+            fi
+            mv "${values}.new" "${values}"
+
+            # The text edit must agree with how the file parses: every mapping
+            # with this repository now has the new tag, and only those lines
+            # changed. Anything else is a layout the edit did not understand.
+            parsed="$(yq '[.. | select(tag == "!!map" and .repository == strenv(IMAGE))] | length' "${values}")"
+            stale="$(yq '[.. | select(tag == "!!map" and .repository == strenv(IMAGE) and .tag != strenv(IMAGE_TAG))] | length' "${values}")"
+            read -r added removed _ < <(git diff --numstat -- "${values}")
+            if [ "${parsed}" != "${count}" ] || [ "${stale}" != "0" ] \
+               || [ "${added:-0}" -gt "${count}" ] || [ "${added:-0}" != "${removed:-0}" ]; then
+              echo "::error file=${values}::Rewrote ${count} tag(s), but the file has ${parsed} '${IMAGE}' entries, ${stale} with another tag, and ${added:-0}/${removed:-0} lines changed"
+              git diff -- "${values}"
+              exit 1
+            fi
+
+            echo "Set ${count} '${IMAGE}' tag(s) in ${values} to ${IMAGE_TAG}"
+            total=$(( total + count ))
+          done
+          echo "Updated ${total} tag(s)"
+
+      - name: Commit and push
+        env:
+          COMMIT_AUTHOR_NAME: '${{ github.event.head_commit.author.name || github.actor }}'
+          COMMIT_AUTHOR_EMAIL: "${{ github.event.head_commit.author.email || format('{0}@users.noreply.github.com', github.actor) }}"
+          IMAGE_NAME: '${{ inputs.IMAGE_NAME }}'
+          IMAGE_TAG: '${{ inputs.IMAGE_TAG_PREFIX }}${{ inputs.IMAGE_TAG }}${{ inputs.IMAGE_TAG_SUFFIX }}'
+          DEPLOY_ENVIRONMENTS: '${{ inputs.DEPLOY_CONFIG_REPOSITORY_ENVIRONMENTS }}'
+          DEPLOY_CONFIG_REPOSITORY: '${{ inputs.DEPLOY_CONFIG_REPOSITORY }}'
+        run: |
+          git config --local user.email "${COMMIT_AUTHOR_EMAIL}"
+          git config --local user.name "${COMMIT_AUTHOR_NAME} (via automation)"
+          git diff
+
+          if git diff --quiet; then
+            echo "GitOps already references ${IMAGE_TAG}, nothing to commit"
+            exit 0
+          fi
+
+          git commit --all --message="Update ${IMAGE_NAME} ${DEPLOY_ENVIRONMENTS} image tag to ${IMAGE_TAG}"
+
+          # Several repositories deploy into the same GitOps repository, often
+          # into the same file: a rejected push is rebased and retried.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "Push rejected, rebasing onto the branch head and retrying (attempt ${attempt}/5)"
+            sleep "$(( attempt * 5 ))"
+            if ! git pull --rebase; then
+              git rebase --abort || true
+              echo "::error::Could not rebase onto ${DEPLOY_CONFIG_REPOSITORY}. Two deployments have edited the same lines; re-run this job."
+              exit 1
+            fi
+          done
+
+          echo "::error::Could not push to ${DEPLOY_CONFIG_REPOSITORY} after 5 attempts"
+          exit 1
