@@ -12,6 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this repository uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 loosely: while the major version is 0, a breaking change bumps the minor.
 
+## [Unreleased]
+
+### Changed
+
+- The description of `openshift-promote`'s `GITHUB_ISSUE` input, and of the
+  `issue` field in the README's example run form, name the accepted formats:
+  `123`, `#123` or the issue URL. Callers that copied the example can update
+  the field's description to match; nothing else changes.
+
 ## [0.5.0] — 2026-11-09
 
 ### Added

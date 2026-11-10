@@ -115,7 +115,7 @@ on:
         required: false
         type: string
       issue:
-        description: 'GitHub issue number, or the URL of an issue in another repository'
+        description: 'GitHub issue: 123, #123 or the issue URL'
         required: false
         type: string
 
