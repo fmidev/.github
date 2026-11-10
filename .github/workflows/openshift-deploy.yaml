@@ -131,7 +131,7 @@ jobs:
   deploy-image:
     name: Docker build and push
     needs: setup
-    uses: fmidev/.github/.github/workflows/docker-build-and-push.yaml@0.5.0
+    uses: fmidev/.github/.github/workflows/docker-build-and-push.yaml@0.5.1
     with:
       IMAGE_NAME: ${{ inputs.APPLICATION_NAME }}
       IMAGE_FILE: ${{ inputs.IMAGE_FILE }}
@@ -150,7 +150,7 @@ jobs:
   deploy-helm-to-oci:
     name: Helm publish to OCI registry
     needs: setup
-    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yaml@0.5.0
+    uses: fmidev/.github/.github/workflows/helm-build-and-publish-to-oci-repo.yaml@0.5.1
     with:
       APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
       HELM_CHART_PATH: ${{ inputs.HELM_CHART_PATH }}
@@ -163,7 +163,7 @@ jobs:
   update-openshift-app-version:
     name: Update version in OpenShift GitOps
     needs: [setup, deploy-image, deploy-helm-to-oci]
-    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.5.0
+    uses: fmidev/.github/.github/workflows/update-openshift-application-version.yaml@0.5.1
     with:
       APPLICATION_NAME: ${{ inputs.APPLICATION_NAME }}
       APPLICATION_VERSION: ${{ inputs.APPLICATION_VERSION }}
