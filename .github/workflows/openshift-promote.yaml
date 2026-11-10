@@ -78,9 +78,10 @@ on:
         type: string
       GITHUB_ISSUE:
         description: >-
-          GitHub issue of the change, linked in the Slack message: an issue
-          number in the calling repository, e.g. '123', or the full URL of an
-          issue in any repository on this GitHub instance.
+          GitHub issue of the change, linked in the Slack message: '123',
+          '#123' or the issue URL. A number refers to the calling repository;
+          a URL may point to an issue in any repository on this GitHub
+          instance.
         default: ''
         required: false
         type: string
