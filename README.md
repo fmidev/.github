@@ -18,7 +18,7 @@ Shared reusable workflows for the `fmidev` organisation on github.com.
 be called.
 
 Callers pin a tag of this repository, for example
-`uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.5.0`.
+`uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.5.1`.
 
 ## Checks on a change here
 
@@ -83,7 +83,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.5.0
+    uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.5.1
     with:
       APPLICATION_NAME: 'my-app'
       DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'tenant-id'
@@ -121,7 +121,7 @@ on:
 
 jobs:
   deploy:
-    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.5.0
+    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.5.1
     with:
       APPLICATION_NAME: 'my-app'
       APPLICATION_DISPLAY_NAME: 'My App'
