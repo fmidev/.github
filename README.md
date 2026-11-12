@@ -19,7 +19,7 @@ Shared reusable workflows for the `fmidev` organisation on github.com.
 be called.
 
 Callers pin a tag of this repository, for example
-`uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.6.0`.
+`uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.6.1`.
 
 ## Checks on a change here
 
@@ -84,7 +84,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.6.0
+    uses: fmidev/.github/.github/workflows/openshift-deploy.yaml@0.6.1
     with:
       APPLICATION_NAME: 'my-app'
       DEPLOY_CONFIG_REPOSITORY_BASE_PATH: 'tenant-id'
@@ -122,7 +122,7 @@ on:
 
 jobs:
   deploy:
-    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.6.0
+    uses: fmidev/.github/.github/workflows/openshift-promote.yaml@0.6.1
     with:
       APPLICATION_NAME: 'my-app'
       APPLICATION_DISPLAY_NAME: 'My App'
@@ -242,7 +242,7 @@ Applications that are entries in a shared chart, such as CronJobs in
 ```yaml
 jobs:
   image:
-    uses: fmidev/.github/.github/workflows/docker-build-and-push.yaml@0.6.0
+    uses: fmidev/.github/.github/workflows/docker-build-and-push.yaml@0.6.1
     with:
       IMAGE_NAME: 'my-job'
       IMAGE_TAG: ${{ github.ref_name }}
@@ -250,7 +250,7 @@ jobs:
 
   deploy:
     needs: image
-    uses: fmidev/.github/.github/workflows/update-openshift-image-tag.yaml@0.6.0
+    uses: fmidev/.github/.github/workflows/update-openshift-image-tag.yaml@0.6.1
     with:
       APPLICATION_NAME: 'pak-cronjobs'
       IMAGE_NAME: 'my-job'
