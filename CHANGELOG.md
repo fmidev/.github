@@ -12,6 +12,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this repository uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 loosely: while the major version is 0, a breaking change bumps the minor.
 
+## [Unreleased]
+
+### Fixed
+
+- `update-openshift-image-tag` failed without an error message when the
+  GitOps file already had the requested tag: with nothing to diff, the
+  post-edit check's `read` hit end of input and `bash -e` aborted the step.
+  An unchanged file now passes, is logged as already at that tag, and the
+  commit step reports that there is nothing to commit. Seen deploying
+  fminames-scripts 0.1.0 into `pak/pak-cronjobs` development.
+
 ## [0.6.0] — 2026-11-10
 
 ### Added

@@ -213,7 +213,12 @@ jobs:
             # changed. Anything else is a layout the edit did not understand.
             parsed="$(yq '[.. | select(tag == "!!map" and .repository == strenv(IMAGE))] | length' "${values}")"
             stale="$(yq '[.. | select(tag == "!!map" and .repository == strenv(IMAGE) and .tag != strenv(IMAGE_TAG))] | length' "${values}")"
-            read -r added removed _ < <(git diff --numstat -- "${values}")
+            # No diff at all (the tags already had this value) is fine: 'read'
+            # then hits end of input and fails, which must not abort the step
+            # under 'bash -e'.
+            added=0
+            removed=0
+            read -r added removed _ < <(git diff --numstat -- "${values}") || true
             if [ "${parsed}" != "${count}" ] || [ "${stale}" != "0" ] \
                || [ "${added:-0}" -gt "${count}" ] || [ "${added:-0}" != "${removed:-0}" ]; then
               echo "::error file=${values}::Rewrote ${count} tag(s), but the file has ${parsed} '${IMAGE}' entries, ${stale} with another tag, and ${added:-0}/${removed:-0} lines changed"
@@ -221,7 +226,11 @@ jobs:
               exit 1
             fi
 
-            echo "Set ${count} '${IMAGE}' tag(s) in ${values} to ${IMAGE_TAG}"
+            if [ "${added:-0}" = "0" ]; then
+              echo "${count} '${IMAGE}' tag(s) in ${values} already ${IMAGE_TAG}"
+            else
+              echo "Set ${count} '${IMAGE}' tag(s) in ${values} to ${IMAGE_TAG}"
+            fi
             total=$(( total + count ))
           done
           echo "Updated ${total} tag(s)"
